@@ -104,6 +104,11 @@ export async function GET(request: Request) {
           target: true
         }
       },
+      pdbStructures: {
+        include: {
+          pdbStructure: true
+        }
+      },
       notes: true,
       sourcePayloads: {
         include: {

@@ -342,6 +342,18 @@ dd {
   overflow-wrap: anywhere;
 }
 
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f2f6f8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0;
+  max-height: 420px;
+  overflow: auto;
+}
+
 .section {
   margin-top: 28px;
 }

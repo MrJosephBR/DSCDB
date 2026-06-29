@@ -92,6 +92,25 @@ The importer upserts compound identity fields, external identifiers, ClassyFire-
 
 The full original compound object is preserved in `source_payloads`. Unknown or partially mapped blocks such as PDB structures, SIMCOMP/similarity, nested pathway data, miscellaneous database notes, and viewer-specific fields are never discarded.
 
+## Peak Table Import
+
+The first peak-table importer supports CSV files with one PubChem CID column and sample columns:
+
+```csv
+pubchem_cid,SAMPLE_001,SAMPLE_002
+460,123.4,0
+702,0,55.2
+```
+
+Use `/imports` or:
+
+```text
+POST /api/import/peak-table?dryRun=1
+form fields: file, datasetTitle, diseaseName, dryRun
+```
+
+The importer creates datasets, dataset files, diseases, samples, compounds by PubChem CID, measurements, and aggregated `compound_disease_presence`. Presence remains a dataset observation only.
+
 ## Main Pages
 
 - `/compounds` searchable compound table
@@ -115,6 +134,8 @@ The full original compound object is preserved in `source_payloads`. Unknown or 
 - `GET /api/datasets`
 - `GET /api/diseases`
 - `GET /api/imports`
+- `POST /api/import/compounds-json`
+- `POST /api/import/peak-table`
 - `GET /api/audit`
 - `GET /api/duplicates`
 - `PATCH /api/duplicates/[id]`
@@ -166,6 +187,8 @@ Initial tests cover:
 - disease presence without causality or biomarker assertion
 - related disease source requirement
 - JSON export separation between `dataset_presence` and `related_diseases`
+- Curated JSON import with richer viewer fields
+- Peak table CSV parsing, invalid CIDs, and duplicate CIDs
 
 ## Data Model Rules
 

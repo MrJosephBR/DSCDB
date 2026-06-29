@@ -58,6 +58,11 @@ const compoundInclude = {
       target: true
     }
   },
+  pdbStructures: {
+    include: {
+      pdbStructure: true
+    }
+  },
   notes: true,
   sourcePayloads: {
     include: {

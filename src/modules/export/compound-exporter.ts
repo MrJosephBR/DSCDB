@@ -82,6 +82,20 @@ type AnyCompound = {
       externalId: string | null;
     };
   }>;
+  pdbStructures?: Array<{
+    ligandId: string | null;
+    chain: string | null;
+    source: string | null;
+    notes: string | null;
+    pdbStructure: {
+      pdbId: string;
+      title: string | null;
+      method: string | null;
+      resolution: unknown;
+      organism: string | null;
+      url: string | null;
+    };
+  }>;
   notes?: Array<{
     note: string;
     createdAt: Date | string;
@@ -226,6 +240,18 @@ export function serializeCompoundForExport(compound: AnyCompound) {
       organism: link.target.organism,
       external_id: link.target.externalId,
       directness: link.directness
+    })),
+    pdb_structures: (compound.pdbStructures ?? []).map((link) => ({
+      pdb_id: link.pdbStructure.pdbId,
+      title: link.pdbStructure.title,
+      method: link.pdbStructure.method,
+      resolution: link.pdbStructure.resolution,
+      organism: link.pdbStructure.organism,
+      url: link.pdbStructure.url,
+      ligand_id: link.ligandId,
+      chain: link.chain,
+      source: link.source,
+      notes: link.notes
     })),
     database_notes: (compound.notes ?? []).map((note) => ({
       note: note.note,

@@ -31,6 +31,14 @@ enum ExternalDatabase {
   CAS
   ChEBI
   InChIKey
+  InChI
+  SMILES
+  PDB
+  PathBank
+  BioCyc
+  PlantCyc
+  DrugBank
+  UniProt
   Other
 }
 
@@ -157,10 +165,14 @@ model User {
 model Compound {
   compoundId        String    @id @default(uuid()) @map("compound_id") @db.Uuid
   pubchemCid        Int       @unique @map("pubchem_cid")
+  preferredName     String?   @map("preferred_name")
   commonName        String?   @map("common_name")
   iupacName         String?   @map("iupac_name")
   molecularFormula  String?   @map("molecular_formula")
   molecularWeight   Decimal?  @map("molecular_weight") @db.Decimal(14, 6)
+  description       String?
+  source            String?
+  status            String?   @default("active")
   annotationSummary String?   @map("annotation_summary")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -180,6 +192,8 @@ model Compound {
   artifactAssessments   ArtifactAssessment[]
   pathways              CompoundPathway[]
   targets               CompoundTarget[]
+  pdbStructures         CompoundPdbStructure[]
+  measurements          CompoundMeasurement[]
   notes                 CompoundNote[]
   sourcePayloads        SourcePayload[]
   duplicateReviewSource DuplicateReview[] @relation("DuplicateSource")
@@ -193,10 +207,14 @@ model Compound {
 model CompoundIdentity {
   identityId  String   @id @default(uuid()) @map("identity_id") @db.Uuid
   compoundId  String   @unique @map("compound_id") @db.Uuid
+  formula     String?
+  exactMass   Decimal? @map("exact_mass") @db.Decimal(14, 6)
+  molecularWeight Decimal? @map("molecular_weight") @db.Decimal(14, 6)
   inchi       String?
   inchiKey    String?  @map("inchi_key")
   smiles      String?
   canonicalSmiles String? @map("canonical_smiles")
+  isomericSmiles String? @map("isomeric_smiles")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -228,6 +246,7 @@ model ExternalIdentifier {
   database             ExternalDatabase
   identifier           String
   url                  String?
+  notes                String?
   sourceOriginId       String?          @map("source_origin_id") @db.Uuid
   createdAt            DateTime         @default(now()) @map("created_at")
 
@@ -333,7 +352,18 @@ model CompoundSourceLink {
 model Dataset {
   datasetId          String            @id @default(uuid()) @map("dataset_id") @db.Uuid
   title              String
+  name               String?
   description        String?
+  doi                String?
+  url                String?
+  datasetType        String?           @map("dataset_type")
+  technology         String?
+  sampleMatrix       String?           @map("sample_matrix")
+  organism           String?
+  isPublic           Boolean           @default(true) @map("is_public")
+  isAnonymized       Boolean           @default(true) @map("is_anonymized")
+  license            String?
+  notes              String?
   analyticalPlatform String?           @map("analytical_platform")
   visibility         DatasetVisibility @default(public)
   ethicalMetadata    Json?             @map("ethical_metadata") @db.JsonB
@@ -346,6 +376,7 @@ model Dataset {
   files        DatasetFile[]
   diseases     DatasetDisease[]
   presence     CompoundDiseasePresence[]
+  samples      Sample[]
 
   @@index([analyticalPlatform])
   @@map("datasets")
@@ -354,15 +385,25 @@ model Dataset {
 model DatasetFile {
   datasetFileId String   @id @default(uuid()) @map("dataset_file_id") @db.Uuid
   datasetId     String   @map("dataset_id") @db.Uuid
+  diseaseId     String?  @map("disease_id") @db.Uuid
   fileName      String   @map("file_name")
+  fileRole      String?  @map("file_role")
   fileKind      FileKind @default(json) @map("file_kind")
+  fileType      String?  @map("file_type")
   storagePath   String?  @map("storage_path")
+  url           String?
   checksumSha256 String? @map("checksum_sha256")
+  rowCount      Int?     @map("row_count")
+  columnCount   Int?     @map("column_count")
+  uploadedBy    String?  @map("uploaded_by") @db.Uuid
   metadata      Json?    @db.JsonB
   createdAt     DateTime @default(now()) @map("created_at")
   deletedAt     DateTime? @map("deleted_at")
 
   dataset Dataset @relation(fields: [datasetId], references: [datasetId])
+  disease Disease? @relation(fields: [diseaseId], references: [diseaseId])
+  measurements CompoundMeasurement[]
+  diseasePresenceSource CompoundDiseasePresence[]
 
   @@map("dataset_files")
 }
@@ -370,6 +411,7 @@ model DatasetFile {
 model Disease {
   diseaseId   String    @id @default(uuid()) @map("disease_id") @db.Uuid
   name        String
+  normalizedName String? @map("normalized_name")
   ontologyId  String?   @map("ontology_id")
   description String?
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -378,6 +420,8 @@ model Disease {
 
   names            DiseaseName[]
   datasets         DatasetDisease[]
+  datasetFiles     DatasetFile[]
+  samples          Sample[]
   compoundPresence CompoundDiseasePresence[]
   relatedCompounds CompoundRelatedDisease[]
 
@@ -420,9 +464,14 @@ model CompoundDiseasePresence {
   compoundId                String                @map("compound_id") @db.Uuid
   datasetId                 String                @map("dataset_id") @db.Uuid
   diseaseId                 String                @map("disease_id") @db.Uuid
+  sourceFileId              String?               @map("source_file_id") @db.Uuid
+  observed                  Boolean?
+  observedCount             Int?                  @map("observed_count")
+  totalSamples              Int?                  @map("total_samples")
   evidenceLevel             PresenceEvidenceLevel @default(reported) @map("evidence_level")
   frequency                 Decimal?              @db.Decimal(8, 5)
   presencePercent           Decimal?              @map("presence_percent") @db.Decimal(8, 5)
+  presenceValueRaw          String?               @map("presence_value_raw")
   notes                     String?
   createdAt                 DateTime              @default(now()) @map("created_at")
   updatedAt                 DateTime              @updatedAt @map("updated_at")
@@ -431,6 +480,7 @@ model CompoundDiseasePresence {
   compound Compound @relation(fields: [compoundId], references: [compoundId])
   dataset  Dataset  @relation(fields: [datasetId], references: [datasetId])
   disease  Disease  @relation(fields: [diseaseId], references: [diseaseId])
+  sourceFile DatasetFile? @relation(fields: [sourceFileId], references: [datasetFileId])
 
   @@unique([compoundId, datasetId, diseaseId])
   @@index([diseaseId])
@@ -442,10 +492,14 @@ model Reference {
   referenceId   String        @id @default(uuid()) @map("reference_id") @db.Uuid
   referenceType ReferenceType @default(article) @map("reference_type")
   title         String?
+  authors       String?
+  journal       String?
   doi           String?
   pmid          String?
   url           String?
   citation      String?
+  citationText  String?       @map("citation_text")
+  source        String?
   year          Int?
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
@@ -454,6 +508,8 @@ model Reference {
   compounds       CompoundReference[]
   relatedDiseases CompoundRelatedDisease[] @relation("OriginalReference")
   evidenceRecords EvidenceRecord[]
+  pathwayLinks    CompoundPathway[]
+  targetLinks     CompoundTarget[]
 
   @@unique([doi])
   @@index([pmid])
@@ -516,8 +572,14 @@ model EvidenceRecord {
   sourceOriginId   String?  @map("source_origin_id") @db.Uuid
   referenceId      String?  @map("reference_id") @db.Uuid
   evidenceType     String   @map("evidence_type")
+  biologicalContext String? @map("biological_context")
+  species          String?
   humanEvidence    Boolean  @default(false) @map("human_evidence")
+  evidenceLevel    String?  @map("evidence_level")
+  source           String?
   summary          String?
+  notes            String?
+  rawJson          Json?    @map("raw_json") @db.JsonB
   createdAt        DateTime @default(now()) @map("created_at")
 
   compound     Compound      @relation(fields: [compoundId], references: [compoundId])
@@ -532,8 +594,11 @@ model AnnotationConfidence {
   annotationConfidenceId String                    @id @default(uuid()) @map("annotation_confidence_id") @db.Uuid
   compoundId             String                    @unique @map("compound_id") @db.Uuid
   level                  AnnotationConfidenceLevel @default(unknown)
+  score                  Decimal?                  @db.Decimal(8, 5)
   method                 String?
+  source                 String?
   rationale              String?
+  notes                  String?
   createdAt              DateTime                  @default(now()) @map("created_at")
   updatedAt              DateTime                  @updatedAt @map("updated_at")
 
@@ -546,7 +611,11 @@ model ArtifactAssessment {
   artifactAssessmentId String       @id @default(uuid()) @map("artifact_assessment_id") @db.Uuid
   compoundId           String       @map("compound_id") @db.Uuid
   flag                 ArtifactFlag @default(unknown)
+  artifactType         String?      @map("artifact_type")
+  confidence           String?
   rationale            String?
+  source               String?
+  notes                String?
   createdAt            DateTime     @default(now()) @map("created_at")
   updatedAt            DateTime     @updatedAt @map("updated_at")
 
@@ -558,9 +627,15 @@ model ArtifactAssessment {
 model Pathway {
   pathwayId   String      @id @default(uuid()) @map("pathway_id") @db.Uuid
   name        String
+  database    String?
   pathwayType PathwayType @default(other) @map("pathway_type")
+  pathwayExternalId String? @map("pathway_external_id")
   externalId  String?     @map("external_id")
   source      String?
+  url         String?
+  organism    String?
+  taxonId     String?     @map("taxon_id")
+  biologicalContext String? @map("biological_context")
   createdAt   DateTime    @default(now()) @map("created_at")
 
   compounds CompoundPathway[]
@@ -573,10 +648,16 @@ model CompoundPathway {
   compoundPathwayId String   @id @default(uuid()) @map("compound_pathway_id") @db.Uuid
   compoundId        String   @map("compound_id") @db.Uuid
   pathwayId         String   @map("pathway_id") @db.Uuid
+  role              String?
+  source            String?
+  evidenceLevel     String?  @map("evidence_level")
+  referenceId       String?  @map("reference_id") @db.Uuid
+  notes             String?
   createdAt         DateTime @default(now()) @map("created_at")
 
   compound Compound @relation(fields: [compoundId], references: [compoundId])
   pathway  Pathway  @relation(fields: [pathwayId], references: [pathwayId])
+  reference Reference? @relation(fields: [referenceId], references: [referenceId])
 
   @@unique([compoundId, pathwayId])
   @@map("compound_pathways")
@@ -585,7 +666,13 @@ model CompoundPathway {
 model Target {
   targetId   String   @id @default(uuid()) @map("target_id") @db.Uuid
   name       String
+  geneSymbol String?  @map("gene_symbol")
+  uniprotId  String?  @map("uniprot_id")
   organism   String?
+  taxonId    String?  @map("taxon_id")
+  isHuman    Boolean? @map("is_human")
+  targetType String?  @map("target_type")
+  description String?
   externalId String?  @map("external_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
@@ -599,12 +686,19 @@ model CompoundTarget {
   compoundTargetId String           @id @default(uuid()) @map("compound_target_id") @db.Uuid
   compoundId       String           @map("compound_id") @db.Uuid
   targetId         String           @map("target_id") @db.Uuid
+  interactionType  String?          @map("interaction_type")
   directness       TargetDirectness @default(unknown)
+  evidenceLevel    String?          @map("evidence_level")
+  source           String?
+  referenceId      String?          @map("reference_id") @db.Uuid
+  notes            String?
+  rawJson          Json?            @map("raw_json") @db.JsonB
   sourceOriginId   String?          @map("source_origin_id") @db.Uuid
   createdAt        DateTime         @default(now()) @map("created_at")
 
   compound Compound @relation(fields: [compoundId], references: [compoundId])
   target   Target   @relation(fields: [targetId], references: [targetId])
+  reference Reference? @relation(fields: [referenceId], references: [referenceId])
 
   @@unique([compoundId, targetId, directness])
   @@map("compound_targets")
@@ -613,6 +707,7 @@ model CompoundTarget {
 model CompoundNote {
   compoundNoteId String   @id @default(uuid()) @map("compound_note_id") @db.Uuid
   compoundId     String   @map("compound_id") @db.Uuid
+  noteType       String?  @default("curation_notes") @map("note_type")
   note           String
   createdBy      String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at")
@@ -627,6 +722,8 @@ model SourcePayload {
   compoundId      String?  @map("compound_id") @db.Uuid
   sourceOriginId  String?  @map("source_origin_id") @db.Uuid
   importJobId     String?  @map("import_job_id") @db.Uuid
+  sourceName      String?  @map("source_name")
+  payloadType     String?  @map("payload_type")
   payload         Json     @db.JsonB
   payloadHash     String?  @map("payload_hash")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -645,8 +742,11 @@ model DuplicateReview {
   targetCompoundId  String                @map("target_compound_id") @db.Uuid
   reason            String?
   status            DuplicateReviewStatus @default(open)
+  reviewedBy        String?               @map("reviewed_by") @db.Uuid
+  notes             String?
   createdAt         DateTime              @default(now()) @map("created_at")
   resolvedAt        DateTime?             @map("resolved_at")
+  reviewedAt        DateTime?             @map("reviewed_at")
 
   sourceCompound Compound @relation("DuplicateSource", fields: [sourceCompoundId], references: [compoundId])
   targetCompound Compound @relation("DuplicateTarget", fields: [targetCompoundId], references: [compoundId])
@@ -680,7 +780,10 @@ model ImportJob {
   userId        String?         @map("user_id") @db.Uuid
   status        ImportJobStatus @default(pending)
   fileName      String?         @map("file_name")
+  fileType      String?         @map("file_type")
+  dryRun        Boolean         @default(false) @map("dry_run")
   summary       Json?           @db.JsonB
+  errors        Json?           @db.JsonB
   errorMessage  String?         @map("error_message")
   startedAt     DateTime?       @map("started_at")
   completedAt   DateTime?       @map("completed_at")
@@ -690,4 +793,74 @@ model ImportJob {
   sourcePayloads SourcePayload[]
 
   @@map("import_jobs")
+}
+
+model Sample {
+  sampleId    String   @id @default(uuid()) @map("sample_id") @db.Uuid
+  datasetId   String   @map("dataset_id") @db.Uuid
+  diseaseId   String?  @map("disease_id") @db.Uuid
+  sampleCode  String   @map("sample_code")
+  cohortLabel String?  @map("cohort_label")
+  metadata    Json?    @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  dataset Dataset @relation(fields: [datasetId], references: [datasetId])
+  disease Disease? @relation(fields: [diseaseId], references: [diseaseId])
+  measurements CompoundMeasurement[]
+
+  @@unique([datasetId, sampleCode])
+  @@map("samples")
+}
+
+model CompoundMeasurement {
+  compoundMeasurementId String   @id @default(uuid()) @map("compound_measurement_id") @db.Uuid
+  sampleId              String   @map("sample_id") @db.Uuid
+  compoundId            String   @map("compound_id") @db.Uuid
+  sourceFileId          String?  @map("source_file_id") @db.Uuid
+  rawIntensity          Decimal? @map("raw_intensity") @db.Decimal(20, 8)
+  normalizedIntensity   Decimal? @map("normalized_intensity") @db.Decimal(20, 8)
+  scaledIntensity       Decimal? @map("scaled_intensity") @db.Decimal(20, 8)
+  isDetected            Boolean  @default(false) @map("is_detected")
+  missingReason         String?  @map("missing_reason")
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  sample Sample @relation(fields: [sampleId], references: [sampleId])
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+  sourceFile DatasetFile? @relation(fields: [sourceFileId], references: [datasetFileId])
+
+  @@unique([sampleId, compoundId, sourceFileId])
+  @@map("compound_measurements")
+}
+
+model PdbStructure {
+  pdbStructureId String   @id @default(uuid()) @map("pdb_structure_id") @db.Uuid
+  pdbId          String   @unique @map("pdb_id")
+  title          String?
+  method         String?
+  resolution     Decimal? @db.Decimal(8, 3)
+  organism       String?
+  url            String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  compounds CompoundPdbStructure[]
+
+  @@map("pdb_structures")
+}
+
+model CompoundPdbStructure {
+  compoundPdbStructureId String   @id @default(uuid()) @map("compound_pdb_structure_id") @db.Uuid
+  compoundId             String   @map("compound_id") @db.Uuid
+  pdbStructureId         String   @map("pdb_structure_id") @db.Uuid
+  ligandId               String?  @map("ligand_id")
+  chain                  String?
+  source                 String?
+  notes                  String?
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+  pdbStructure PdbStructure @relation(fields: [pdbStructureId], references: [pdbStructureId])
+
+  @@unique([compoundId, pdbStructureId, ligandId, chain])
+  @@map("compound_pdb_structures")
 }

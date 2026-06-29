@@ -19,8 +19,11 @@ const identifiersSchema = z
     formula: z.string().optional(),
     molecular_formula: z.string().optional(),
     molecular_weight: z.union([z.string(), z.number()]).optional(),
+    inchi: z.string().optional(),
     inchikey: z.string().optional(),
     smiles: z.string().optional(),
+    canonical_smiles: z.string().optional(),
+    isomeric_smiles: z.string().optional(),
     hmdb_id: z.string().optional(),
     kegg_id: z.string().optional(),
     cas: z.string().optional(),
@@ -84,7 +87,10 @@ export type CuratedCompoundImportItem = {
   formula?: string;
   molecularWeight?: number;
   inchikey?: string;
+  inchi?: string;
   smiles?: string;
+  canonicalSmiles?: string;
+  isomericSmiles?: string;
   hmdbId?: string;
   keggId?: string;
   cas?: string;
@@ -105,6 +111,7 @@ export type CuratedCompoundImportItem = {
   evidenceRecords: NormalizedEvidence[];
   pathways: NormalizedPathway[];
   targets: NormalizedTarget[];
+  pdbStructures: NormalizedPdbStructure[];
   relatedDiseases: NormalizedRelatedDisease[];
   presence: Array<{
     key: PresenceKey;
@@ -140,6 +147,19 @@ export type NormalizedTarget = {
   organism?: string;
   externalId?: string;
   directness: "direct" | "indirect" | "predicted" | "unknown";
+};
+
+export type NormalizedPdbStructure = {
+  pdbId: string;
+  title?: string;
+  method?: string;
+  resolution?: number;
+  organism?: string;
+  url?: string;
+  ligandId?: string;
+  chain?: string;
+  source?: string;
+  notes?: string;
 };
 
 export type NormalizedRelatedDisease = {
@@ -233,8 +253,11 @@ export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoun
       iupacName: cleanString(identifiers.iupac_name),
       formula: cleanString(identifiers.formula) ?? cleanString(identifiers.molecular_formula),
       molecularWeight: normalizeNumber(identifiers.molecular_weight),
+      inchi: cleanString(identifiers.inchi),
       inchikey: cleanString(identifiers.inchikey),
       smiles: cleanString(identifiers.smiles),
+      canonicalSmiles: cleanString(identifiers.canonical_smiles),
+      isomericSmiles: cleanString(identifiers.isomeric_smiles),
       hmdbId: cleanString(identifiers.hmdb_id),
       keggId: cleanString(identifiers.kegg_id),
       cas: cleanString(identifiers.cas),
@@ -251,6 +274,7 @@ export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoun
       evidenceRecords: normalizeEvidence(compound),
       pathways: normalizePathways(compound.reactions_pathways),
       targets: normalizeTargets(compound.interactions),
+      pdbStructures: normalizePdbStructures(compound.structures),
       relatedDiseases: normalizeRelatedDiseases(compound),
       presence: normalizePeaktablePresence(compound.peaktable_presence)
     });
@@ -429,18 +453,30 @@ async function persistCompoundDetails(
   await db.compoundIdentity.upsert({
     where: { compoundId },
     update: {
+      formula: item.formula,
+      molecularWeight: item.molecularWeight,
+      inchi: item.inchi,
       inchiKey: item.inchikey,
-      smiles: item.smiles
+      smiles: item.smiles,
+      canonicalSmiles: item.canonicalSmiles,
+      isomericSmiles: item.isomericSmiles
     },
     create: {
       compoundId,
+      formula: item.formula,
+      molecularWeight: item.molecularWeight,
+      inchi: item.inchi,
       inchiKey: item.inchikey,
-      smiles: item.smiles
+      smiles: item.smiles,
+      canonicalSmiles: item.canonicalSmiles,
+      isomericSmiles: item.isomericSmiles
     }
   });
 
   await upsertExternalIdentifier(db, compoundId, "PubChem", String(item.pubchemCid), sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "InChI", item.inchi, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "InChIKey", item.inchikey, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "SMILES", item.smiles, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "HMDB", item.hmdbId, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "KEGG", item.keggId, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "CAS", item.cas, sourceOriginId);
@@ -451,6 +487,8 @@ async function persistCompoundDetails(
       compoundId,
       sourceOriginId,
       importJobId,
+      sourceName: "Curated JSON import",
+      payloadType: "compound_json",
       payload: item.raw as Prisma.InputJsonValue,
       payloadHash: item.rawHash
     }
@@ -544,6 +582,10 @@ async function persistCompoundDetails(
 
   for (const target of item.targets) {
     await upsertTarget(db, compoundId, target);
+  }
+
+  for (const pdbStructure of item.pdbStructures) {
+    await upsertPdbStructure(db, compoundId, pdbStructure);
   }
 
   for (const relatedDisease of item.relatedDiseases) {
@@ -806,6 +848,32 @@ function normalizeTargets(value: unknown) {
     .filter((target): target is NormalizedTarget => Boolean(target));
 }
 
+function normalizePdbStructures(value: unknown) {
+  const records = collectRecords(value);
+
+  return records
+    .map((record): NormalizedPdbStructure | null => {
+      const pdbId = cleanString(record.pdb_id) ?? cleanString(record.pdbId) ?? cleanString(record.id);
+      if (!pdbId) {
+        return null;
+      }
+
+      return {
+        pdbId: pdbId.toUpperCase(),
+        title: cleanString(record.title) ?? cleanString(record.name),
+        method: cleanString(record.method),
+        resolution: normalizeNumber(record.resolution),
+        organism: cleanString(record.organism) ?? cleanString(record.species),
+        url: cleanString(record.url),
+        ligandId: cleanString(record.ligand_id) ?? cleanString(record.ligand),
+        chain: cleanString(record.chain),
+        source: cleanString(record.source) ?? "Curated JSON import",
+        notes: normalizeUnknownBlock("pdb_structure", record)
+      };
+    })
+    .filter((structure): structure is NormalizedPdbStructure => Boolean(structure));
+}
+
 function normalizeRelatedDiseases(compound: CuratedJsonCompound) {
   const values = Array.isArray(compound.related_diseases) ? compound.related_diseases : collectRecords(compound.related_diseases);
 
@@ -920,7 +988,7 @@ function makeSummary(input: Omit<CuratedCompoundImportSummary, "totalCompounds" 
 async function upsertExternalIdentifier(
   db: Db,
   compoundId: string,
-  database: "PubChem" | "InChIKey" | "HMDB" | "KEGG" | "CAS" | "ChEBI",
+  database: "PubChem" | "InChI" | "InChIKey" | "SMILES" | "HMDB" | "KEGG" | "CAS" | "ChEBI",
   identifier: string | undefined,
   sourceOriginId: string
 ) {
@@ -942,6 +1010,59 @@ async function upsertExternalIdentifier(
       database,
       identifier,
       sourceOriginId
+    }
+  });
+}
+
+async function upsertPdbStructure(db: Db, compoundId: string, pdbStructure: NormalizedPdbStructure) {
+  const saved = await db.pdbStructure.upsert({
+    where: { pdbId: pdbStructure.pdbId },
+    update: {
+      title: pdbStructure.title,
+      method: pdbStructure.method,
+      resolution: pdbStructure.resolution,
+      organism: pdbStructure.organism,
+      url: pdbStructure.url
+    },
+    create: {
+      pdbId: pdbStructure.pdbId,
+      title: pdbStructure.title,
+      method: pdbStructure.method,
+      resolution: pdbStructure.resolution,
+      organism: pdbStructure.organism,
+      url: pdbStructure.url
+    }
+  });
+
+  const existing = await db.compoundPdbStructure.findFirst({
+    where: {
+      compoundId,
+      pdbStructureId: saved.pdbStructureId,
+      ligandId: pdbStructure.ligandId ?? null,
+      chain: pdbStructure.chain ?? null
+    },
+    select: { compoundPdbStructureId: true }
+  });
+
+  if (existing) {
+    await db.compoundPdbStructure.update({
+      where: { compoundPdbStructureId: existing.compoundPdbStructureId },
+      data: {
+        source: pdbStructure.source,
+        notes: pdbStructure.notes
+      }
+    });
+    return;
+  }
+
+  await db.compoundPdbStructure.create({
+    data: {
+      compoundId,
+      pdbStructureId: saved.pdbStructureId,
+      ligandId: pdbStructure.ligandId,
+      chain: pdbStructure.chain,
+      source: pdbStructure.source,
+      notes: pdbStructure.notes
     }
   });
 }

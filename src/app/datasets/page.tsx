@@ -37,7 +37,7 @@ export default async function DatasetsPage() {
         <tbody>
           {datasets.map((dataset) => (
             <tr key={dataset.datasetId}>
-              <td>{dataset.title}</td>
+              <td><a href={`/datasets/${dataset.datasetId}`}>{dataset.title}</a></td>
               <td>{dataset.analyticalPlatform ?? "Not specified"}</td>
               <td>{dataset.diseases.map((link) => link.disease.name).join(", ") || "None"}</td>
               <td>{dataset._count.presence}</td>

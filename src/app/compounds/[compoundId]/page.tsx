@@ -92,6 +92,15 @@ export default async function CompoundDetailPage({ params }: Props) {
           <SimpleList items={compound.targets.map((link) => `${link.target.name} (${link.directness}, ${link.target.organism ?? "organism unknown"})`)} />
         </DetailBlock>
 
+        <DetailBlock title="PDB">
+          <SimpleList
+            items={compound.pdbStructures.map(
+              (link) =>
+                `${link.pdbStructure.pdbId}: ${link.pdbStructure.title ?? "Untitled"}${link.ligandId ? ` ligand ${link.ligandId}` : ""}`
+            )}
+          />
+        </DetailBlock>
+
         <DetailBlock title="Notes">
           <SimpleList items={compound.notes.map((note) => note.note)} />
         </DetailBlock>

@@ -35,9 +35,15 @@ export default async function Home() {
           <a href="/datasets">Datasets</a>
           <a href="/diseases">Diseases</a>
           <a href="/imports">Imports</a>
+          <a href="/references">References</a>
+          <a href="/pathways">Pathways</a>
+          <a href="/targets">Targets</a>
+          <a href="/samples">Samples</a>
+          <a href="/measurements">Measurements</a>
           <a href="/duplicates">Duplicates</a>
           <a href="/audit">Audit</a>
           <a href="/users">Users</a>
+          <a href="/account">Account</a>
           <a href="/login">Login</a>
         </nav>
         <AuthStatus />

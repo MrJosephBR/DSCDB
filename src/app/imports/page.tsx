@@ -1,5 +1,6 @@
 import ImportForm from "./ui/import-form";
 import { prisma } from "@/lib/prisma";
+import PeakTableForm from "./ui/peak-table-form";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export default async function ImportsPage() {
       </section>
 
       <ImportForm />
+      <PeakTableForm />
 
       <section className="section">
         <h2>Import History</h2>
@@ -47,7 +49,7 @@ export default async function ImportsPage() {
             {importJobs.map((job) => (
               <tr key={job.importJobId}>
                 <td>{job.createdAt.toISOString()}</td>
-                <td>{job.fileName ?? "Not recorded"}</td>
+                <td><a href={`/imports/${job.importJobId}`}>{job.fileName ?? "Not recorded"}</a></td>
                 <td>{job.status}</td>
                 <td>{JSON.stringify(job.summary ?? {})}</td>
                 <td>{job.user ? `${job.user.email} (${job.user.role})` : "System"}</td>

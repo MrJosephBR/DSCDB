@@ -3,11 +3,18 @@
 import { useMemo, useState } from "react";
 
 type ImportSummary = {
+  total: number;
+  valid: number;
+  invalid: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  dryRun: boolean;
   totalCompounds: number;
   createdCompounds: number;
   updatedCompounds: number;
   skippedCompounds: number;
-  validationErrors: string[];
+  validationErrors: Array<{ index: number; pubchemCid?: number; message: string }>;
 };
 
 export default function ImportForm() {
@@ -26,7 +33,10 @@ export default function ImportForm() {
 
   async function submitImport(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await runImport(false);
+  }
 
+  async function runImport(dryRun: boolean) {
     if (!file) {
       setError("Select a .json file first.");
       return;
@@ -38,8 +48,9 @@ export default function ImportForm() {
 
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("dryRun", dryRun ? "true" : "false");
 
-    const response = await fetch("/api/import/compounds-json", {
+    const response = await fetch(`/api/import/compounds-json${dryRun ? "?dryRun=1" : ""}`, {
       method: "POST",
       body: formData
     });
@@ -67,9 +78,14 @@ export default function ImportForm() {
           <span>{fileLabel}</span>
         </label>
 
-        <button className="button" type="submit" disabled={isUploading}>
-          {isUploading ? "Importing..." : "Import compounds"}
-        </button>
+        <div className="button-row">
+          <button className="button secondary" type="button" disabled={isUploading} onClick={() => runImport(true)}>
+            Dry run
+          </button>
+          <button className="button" type="submit" disabled={isUploading}>
+            {isUploading ? "Importing..." : "Import compounds"}
+          </button>
+        </div>
 
         <p>
           The importer upserts basic identity fields, stores raw JSON in source payloads, and treats peaktable presence
@@ -83,26 +99,41 @@ export default function ImportForm() {
         <section className="summary-grid" aria-label="Import summary">
           <div className="metric">
             Total
-            <strong>{summary.totalCompounds}</strong>
+            <strong>{summary.total}</strong>
+          </div>
+          <div className="metric">
+            Valid
+            <strong>{summary.valid}</strong>
+          </div>
+          <div className="metric">
+            Invalid
+            <strong>{summary.invalid}</strong>
           </div>
           <div className="metric">
             Created
-            <strong>{summary.createdCompounds}</strong>
+            <strong>{summary.created}</strong>
           </div>
           <div className="metric">
             Updated
-            <strong>{summary.updatedCompounds}</strong>
+            <strong>{summary.updated}</strong>
           </div>
           <div className="metric">
             Skipped
-            <strong>{summary.skippedCompounds}</strong>
+            <strong>{summary.skipped}</strong>
+          </div>
+          <div className="metric">
+            Mode
+            <strong>{summary.dryRun ? "Dry" : "Saved"}</strong>
           </div>
           {summary.validationErrors.length > 0 ? (
             <div className="validation-list">
               <strong>Validation errors</strong>
               <ul>
                 {summary.validationErrors.map((validationError) => (
-                  <li key={validationError}>{validationError}</li>
+                  <li key={`${validationError.index}-${validationError.message}`}>
+                    compounds[{validationError.index}]
+                    {validationError.pubchemCid ? ` CID ${validationError.pubchemCid}` : ""}: {validationError.message}
+                  </li>
                 ))}
               </ul>
             </div>

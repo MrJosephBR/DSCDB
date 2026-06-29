@@ -4,6 +4,7 @@ import { recordAuditLog } from "@/modules/audit/service";
 import type { CreateCompoundInput, UpdateCompoundInput } from "./schemas";
 
 const compoundInclude = {
+  identity: true,
   names: true,
   externalIdentifiers: true,
   classificationLinks: {
@@ -39,14 +40,43 @@ const compoundInclude = {
       originalReference: true
     }
   },
+  references: {
+    include: {
+      reference: true
+    }
+  },
+  evidenceRecords: true,
   annotationConfidence: true,
   artifactAssessments: true,
-  sourcePayloads: true
+  pathways: {
+    include: {
+      pathway: true
+    }
+  },
+  targets: {
+    include: {
+      target: true
+    }
+  },
+  notes: true,
+  sourcePayloads: {
+    include: {
+      sourceOrigin: true
+    }
+  },
+  auditLogs: {
+    orderBy: {
+      createdAt: "desc"
+    },
+    take: 50
+  }
 } satisfies Prisma.CompoundInclude;
 
 export async function listCompounds(searchParams: URLSearchParams) {
   const cid = searchParams.get("cid");
   const name = searchParams.get("name");
+  const disease = searchParams.get("disease");
+  const artifactFlag = searchParams.get("artifactFlag");
 
   return prisma.compound.findMany({
     where: {
@@ -66,7 +96,35 @@ export async function listCompounds(searchParams: URLSearchParams) {
               }
             ]
           }
+        : {}),
+      ...(disease
+        ? {
+            diseasePresence: {
+              some: {
+                deletedAt: null,
+                disease: {
+                  name: { contains: disease, mode: "insensitive" }
+                }
+              }
+            }
+          }
+        : {}),
+      ...(artifactFlag
+        ? {
+            artifactAssessments: {
+              some: {
+                flag: artifactFlag as Prisma.EnumArtifactFlagFilter["equals"]
+              }
+            }
+          }
         : {})
+    },
+    include: {
+      diseasePresence: {
+        where: { deletedAt: null },
+        include: { disease: true, dataset: true }
+      },
+      artifactAssessments: true
     },
     orderBy: {
       updatedAt: "desc"

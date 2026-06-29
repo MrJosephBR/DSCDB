@@ -1,6 +1,7 @@
 import { jsonError } from "@/lib/http";
 import { getCompound, softDeleteCompound, updateCompound } from "@/modules/compounds/service";
 import { updateCompoundSchema } from "@/modules/compounds/schemas";
+import { requireRole } from "@/modules/auth/session";
 
 type Context = {
   params: Promise<{ compoundId: string }>;
@@ -19,20 +20,22 @@ export async function GET(_request: Request, context: Context) {
 
 export async function PATCH(request: Request, context: Context) {
   try {
+    const session = requireRole(request, ["admin", "curator", "editor"]);
     const { compoundId } = await context.params;
     const body = await request.json();
     const input = updateCompoundSchema.parse(body);
-    const compound = await updateCompound(compoundId, input);
+    const compound = await updateCompound(compoundId, input, session.userId);
     return Response.json({ data: compound });
   } catch (error) {
     return jsonError(error, 400);
   }
 }
 
-export async function DELETE(_request: Request, context: Context) {
+export async function DELETE(request: Request, context: Context) {
   try {
+    const session = requireRole(request, ["admin", "curator", "editor"]);
     const { compoundId } = await context.params;
-    const compound = await softDeleteCompound(compoundId);
+    const compound = await softDeleteCompound(compoundId, session.userId);
     return Response.json({ data: compound });
   } catch (error) {
     return jsonError(error, 400);

@@ -61,9 +61,10 @@ describe("curated compound JSON importer", () => {
     const plan = buildCuratedCompoundImportPlan(validPayload);
     const summary = summarizeImportPlanWithExistingCids(plan, new Set([460]));
 
-    expect(summary.createdCompounds).toBe(0);
-    expect(summary.updatedCompounds).toBe(1);
-    expect(summary.skippedCompounds).toBe(0);
+    expect(summary.created).toBe(0);
+    expect(summary.updated).toBe(1);
+    expect(summary.skipped).toBe(0);
+    expect(summary.dryRun).toBe(true);
   });
 
   it("preserves raw compound payload with a stable hash", () => {
@@ -86,5 +87,32 @@ describe("curated compound JSON importer", () => {
     expect(plan.items[0].presence).not.toContainEqual(expect.objectContaining({ diseaseName: "COPD", value: 0 }));
     expect(JSON.stringify(plan.items[0].presence).toLowerCase()).not.toContain("biomarker");
     expect(JSON.stringify(plan.items[0].presence).toLowerCase()).not.toContain("diagnostic");
+  });
+
+  it("rejects records without a valid PubChem CID without rejecting the whole file", () => {
+    const plan = buildCuratedCompoundImportPlan({
+      compounds: [
+        { identifiers: { pubchem_cid: "not-a-number" } },
+        { identifiers: { pubchem_cid: "461", common_name: "Valid" } }
+      ]
+    });
+
+    expect(plan.totalCompounds).toBe(2);
+    expect(plan.validCompounds).toBe(1);
+    expect(plan.invalidCompounds).toBe(1);
+    expect(plan.validationErrors[0].message).toContain("Missing or invalid");
+  });
+
+  it("detects duplicate PubChem CIDs inside the same upload", () => {
+    const plan = buildCuratedCompoundImportPlan({
+      compounds: [
+        { identifiers: { pubchem_cid: "460" } },
+        { identifiers: { pubchem_cid: 460 } }
+      ]
+    });
+
+    expect(plan.validCompounds).toBe(1);
+    expect(plan.invalidCompounds).toBe(1);
+    expect(plan.validationErrors[0].message).toContain("Duplicate PubChem CID 460");
   });
 });

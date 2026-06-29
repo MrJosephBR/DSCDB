@@ -77,8 +77,11 @@ describe("VOC domain rules", () => {
       molecularFormula: "C2H6O",
       molecularWeight: "46.068",
       annotationSummary: null,
+      identity: null,
       names: [],
       externalIdentifiers: [],
+      classificationLinks: [],
+      typeLinks: [],
       diseasePresence: [
         {
           dataset: {
@@ -120,6 +123,15 @@ describe("VOC domain rules", () => {
           ]
         }
       ]
+      ,
+      references: [],
+      evidenceRecords: [],
+      annotationConfidence: null,
+      artifactAssessments: [],
+      pathways: [],
+      targets: [],
+      notes: [],
+      sourcePayloads: []
     });
 
     expect(exported.dataset_presence).toHaveLength(1);

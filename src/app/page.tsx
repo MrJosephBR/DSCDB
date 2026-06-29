@@ -30,11 +30,13 @@ export default async function Home() {
         <div className="brand">VOCs Breathomics DB</div>
         <p className="tagline">Research curation and knowledge management for public or anonymized VOC datasets.</p>
         <nav className="nav" aria-label="Primary navigation">
-          <span>Compounds</span>
-          <span>Datasets</span>
-          <span>Diseases</span>
-          <span>Imports</span>
-          <span>Audit</span>
+          <a href="/compounds">Compounds</a>
+          <a href="/datasets">Datasets</a>
+          <a href="/diseases">Diseases</a>
+          <a href="/imports">Imports</a>
+          <a href="/duplicates">Duplicates</a>
+          <a href="/audit">Audit</a>
+          <a href="/login">Login</a>
         </nav>
       </aside>
       <section className="main">

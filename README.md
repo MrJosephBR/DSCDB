@@ -47,6 +47,13 @@ POST /api/import/compounds-json
 form field: file
 ```
 
+Dry-run before writing:
+
+```text
+POST /api/import/compounds-json?dryRun=1
+form fields: file, dryRun=true
+```
+
 The first importer supports files shaped like:
 
 ```json
@@ -75,6 +82,40 @@ The first importer supports files shaped like:
 ```
 
 For this milestone, the importer upserts basic compound identity fields, external identifiers, raw source payloads, database notes, respiratory relevance notes, artifact assessment notes, and cautious nonzero peaktable presence records. Zero values are not imported as absence. Presence rows are dataset observations only and are not treated as diagnosis, causality, or confirmed biomarker claims.
+
+## Main Pages
+
+- `/compounds` searchable compound table
+- `/compounds/[compoundId]` compound detail
+- `/datasets` datasets and disease cohorts
+- `/diseases` diseases and linked compounds
+- `/imports` JSON upload, dry-run, summary, and job history
+- `/duplicates` duplicate review queue
+- `/audit` audit log
+- `/login` local development login
+
+## API Routes
+
+- `GET /api/compounds`
+- `POST /api/compounds`
+- `GET /api/compounds/[id]`
+- `PATCH /api/compounds/[id]`
+- `DELETE /api/compounds/[id]`
+- `GET /api/datasets`
+- `GET /api/diseases`
+- `GET /api/imports`
+- `GET /api/audit`
+- `GET /api/duplicates`
+- `PATCH /api/duplicates/[id]`
+- `GET /api/export/combined`
+
+Write routes require login as `editor`, `curator`, or `admin`. Duplicate review updates require `curator` or `admin`.
+
+Combined export supports filters:
+
+```text
+/api/export/combined?disease=Asthma&dataset=Curated&cidMin=100&cidMax=999&artifactFlag=unknown
+```
 
 ## Development
 
@@ -116,4 +157,8 @@ Initial tests cover:
 
 ## Production Notes
 
-For Oracle VPS production, do not expose PostgreSQL publicly. Remove the `5432:5432` mapping or bind it to localhost only, use a real `.env` on the server, add HTTPS through Nginx or Caddy, and configure database/upload backups.
+For Oracle VPS production, PostgreSQL is not exposed publicly in `docker-compose.yml`; it is available only on the internal Docker network. Caddy terminates HTTP/HTTPS and proxies to the app service. Use a real `.env` on the server, set `APP_DOMAIN`, keep `JWT_SECRET` private, and run backups with:
+
+```bash
+BACKUP_DIR=/srv/vocs-backups ./scripts/backup.sh
+```

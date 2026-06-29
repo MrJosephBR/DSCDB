@@ -1,8 +1,22 @@
 import ImportForm from "./ui/import-form";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default function ImportsPage() {
+export default async function ImportsPage() {
+  const importJobs = await prisma.importJob.findMany({
+    include: {
+      user: {
+        select: {
+          email: true,
+          role: true
+        }
+      }
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50
+  });
+
   return (
     <main className="imports-page">
       <section className="imports-header">
@@ -16,6 +30,32 @@ export default function ImportsPage() {
       </section>
 
       <ImportForm />
+
+      <section className="section">
+        <h2>Import History</h2>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Created</th>
+              <th>File</th>
+              <th>Status</th>
+              <th>Summary</th>
+              <th>User</th>
+            </tr>
+          </thead>
+          <tbody>
+            {importJobs.map((job) => (
+              <tr key={job.importJobId}>
+                <td>{job.createdAt.toISOString()}</td>
+                <td>{job.fileName ?? "Not recorded"}</td>
+                <td>{job.status}</td>
+                <td>{JSON.stringify(job.summary ?? {})}</td>
+                <td>{job.user ? `${job.user.email} (${job.user.role})` : "System"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
     </main>
   );
 }

@@ -1,13 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { jsonError } from "@/lib/http";
 import { importCuratedCompoundsJson, parseCuratedCompoundsJson } from "@/modules/import/json-importer";
+import { requireRole } from "@/modules/auth/session";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
+    const session = requireRole(request, ["admin", "curator", "editor"]);
+    const url = new URL(request.url);
     const formData = await request.formData();
     const file = formData.get("file");
+    const dryRun = url.searchParams.get("dryRun") === "1" || formData.get("dryRun") === "true";
 
     if (!(file instanceof File)) {
       return Response.json({ error: "ValidationError", message: "A JSON file is required" }, { status: 400 });
@@ -18,15 +22,18 @@ export async function POST(request: Request) {
     }
 
     const payload = parseCuratedCompoundsJson(await file.text());
-    const summary = await prisma.$transaction(
-      async (tx) =>
-        importCuratedCompoundsJson(tx, payload, {
-          fileName: file.name
-        }),
-      {
-        timeout: 60_000
-      }
-    );
+    const summary = dryRun
+      ? await importCuratedCompoundsJson(prisma, payload, { dryRun: true, fileName: file.name, userId: session.userId })
+      : await prisma.$transaction(
+          async (tx) =>
+            importCuratedCompoundsJson(tx, payload, {
+              fileName: file.name,
+              userId: session.userId
+            }),
+          {
+            timeout: 120_000
+          }
+        );
 
     return Response.json({ data: summary }, { status: 201 });
   } catch (error) {

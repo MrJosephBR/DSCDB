@@ -1,0 +1,693 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  curator
+  editor
+  researcher
+  viewer
+  analyst
+}
+
+enum NameType {
+  common
+  synonym
+  iupac
+  trade
+  other
+}
+
+enum ExternalDatabase {
+  PubChem
+  HMDB
+  KEGG
+  CAS
+  ChEBI
+  InChIKey
+  Other
+}
+
+enum SourceKind {
+  database
+  publication
+  dataset
+  manual_curation
+  instrument
+  other
+}
+
+enum DatasetVisibility {
+  public
+  anonymized
+  restricted
+}
+
+enum PresenceEvidenceLevel {
+  detected
+  reported
+  curated
+  uncertain
+}
+
+enum RelationAssertion {
+  associated
+  reported
+  curated
+  uncertain
+}
+
+enum RelatedDiseaseSourceRole {
+  original
+  secondary
+}
+
+enum ReferenceType {
+  article
+  database_entry
+  dataset
+  report
+  other
+}
+
+enum AnnotationConfidenceLevel {
+  high
+  medium
+  low
+  unknown
+}
+
+enum ArtifactFlag {
+  likely_artifact
+  possible_artifact
+  unlikely_artifact
+  unknown
+}
+
+enum DuplicateReviewStatus {
+  open
+  confirmed_duplicate
+  rejected
+  merged_manually
+}
+
+enum ImportJobStatus {
+  pending
+  running
+  completed
+  failed
+}
+
+enum AuditAction {
+  create
+  update
+  soft_delete
+  restore
+  import
+  export
+}
+
+enum FileKind {
+  json
+  csv
+  tsv
+  raw
+  cdf
+  mzml
+  other
+}
+
+enum PathwayType {
+  metabolic
+  signaling
+  disease
+  exposure
+  other
+}
+
+enum TargetDirectness {
+  direct
+  indirect
+  predicted
+  unknown
+}
+
+model User {
+  userId       String    @id @default(uuid()) @map("user_id") @db.Uuid
+  email        String    @unique
+  name         String?
+  passwordHash String?   @map("password_hash")
+  role         UserRole  @default(viewer)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  auditLogs AuditLog[]
+  importJobs ImportJob[]
+
+  @@map("users")
+}
+
+model Compound {
+  compoundId        String    @id @default(uuid()) @map("compound_id") @db.Uuid
+  pubchemCid        Int       @unique @map("pubchem_cid")
+  commonName        String?   @map("common_name")
+  iupacName         String?   @map("iupac_name")
+  molecularFormula  String?   @map("molecular_formula")
+  molecularWeight   Decimal?  @map("molecular_weight") @db.Decimal(14, 6)
+  annotationSummary String?   @map("annotation_summary")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  identity              CompoundIdentity?
+  names                 CompoundName[]
+  externalIdentifiers   ExternalIdentifier[]
+  classificationLinks   CompoundClassificationLink[]
+  typeLinks             CompoundTypeLink[]
+  sourceLinks           CompoundSourceLink[]
+  diseasePresence       CompoundDiseasePresence[]
+  relatedDiseases       CompoundRelatedDisease[]
+  references            CompoundReference[]
+  evidenceRecords       EvidenceRecord[]
+  annotationConfidence  AnnotationConfidence?
+  artifactAssessments   ArtifactAssessment[]
+  pathways              CompoundPathway[]
+  targets               CompoundTarget[]
+  notes                 CompoundNote[]
+  sourcePayloads        SourcePayload[]
+  duplicateReviewSource DuplicateReview[] @relation("DuplicateSource")
+  duplicateReviewTarget DuplicateReview[] @relation("DuplicateTarget")
+  auditLogs             AuditLog[]
+
+  @@index([commonName])
+  @@map("compounds")
+}
+
+model CompoundIdentity {
+  identityId  String   @id @default(uuid()) @map("identity_id") @db.Uuid
+  compoundId  String   @unique @map("compound_id") @db.Uuid
+  inchi       String?
+  inchiKey    String?  @map("inchi_key")
+  smiles      String?
+  canonicalSmiles String? @map("canonical_smiles")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+
+  @@map("compound_identity")
+}
+
+model CompoundName {
+  compoundNameId String   @id @default(uuid()) @map("compound_name_id") @db.Uuid
+  compoundId     String   @map("compound_id") @db.Uuid
+  name           String
+  nameType       NameType @default(synonym) @map("name_type")
+  language       String?
+  sourceOriginId String?  @map("source_origin_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  compound     Compound      @relation(fields: [compoundId], references: [compoundId])
+  sourceOrigin SourceOrigin? @relation(fields: [sourceOriginId], references: [sourceOriginId])
+
+  @@unique([compoundId, name, nameType])
+  @@index([name])
+  @@map("compound_names")
+}
+
+model ExternalIdentifier {
+  externalIdentifierId String           @id @default(uuid()) @map("external_identifier_id") @db.Uuid
+  compoundId           String           @map("compound_id") @db.Uuid
+  database             ExternalDatabase
+  identifier           String
+  url                  String?
+  sourceOriginId       String?          @map("source_origin_id") @db.Uuid
+  createdAt            DateTime         @default(now()) @map("created_at")
+
+  compound     Compound      @relation(fields: [compoundId], references: [compoundId])
+  sourceOrigin SourceOrigin? @relation(fields: [sourceOriginId], references: [sourceOriginId])
+
+  @@unique([database, identifier])
+  @@index([compoundId])
+  @@map("external_identifiers")
+}
+
+model ChemicalClassification {
+  chemicalClassificationId String   @id @default(uuid()) @map("chemical_classification_id") @db.Uuid
+  name                     String   @unique
+  vocabulary               String?
+  description              String?
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  compoundLinks CompoundClassificationLink[]
+
+  @@map("chemical_classifications")
+}
+
+model CompoundClassificationLink {
+  compoundClassificationLinkId String @id @default(uuid()) @map("compound_classification_link_id") @db.Uuid
+  compoundId                   String @map("compound_id") @db.Uuid
+  chemicalClassificationId     String @map("chemical_classification_id") @db.Uuid
+  sourceOriginId               String? @map("source_origin_id") @db.Uuid
+  createdAt                    DateTime @default(now()) @map("created_at")
+
+  compound               Compound               @relation(fields: [compoundId], references: [compoundId])
+  chemicalClassification ChemicalClassification @relation(fields: [chemicalClassificationId], references: [chemicalClassificationId])
+  sourceOrigin           SourceOrigin?          @relation(fields: [sourceOriginId], references: [sourceOriginId])
+
+  @@unique([compoundId, chemicalClassificationId])
+  @@map("compound_classification_links")
+}
+
+model CompoundType {
+  compoundTypeId String   @id @default(uuid()) @map("compound_type_id") @db.Uuid
+  name           String   @unique
+  description    String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  links CompoundTypeLink[]
+
+  @@map("compound_types")
+}
+
+model CompoundTypeLink {
+  compoundTypeLinkId String   @id @default(uuid()) @map("compound_type_link_id") @db.Uuid
+  compoundId         String   @map("compound_id") @db.Uuid
+  compoundTypeId     String   @map("compound_type_id") @db.Uuid
+  sourceOriginId     String?  @map("source_origin_id") @db.Uuid
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  compound     Compound      @relation(fields: [compoundId], references: [compoundId])
+  compoundType CompoundType  @relation(fields: [compoundTypeId], references: [compoundTypeId])
+  sourceOrigin SourceOrigin? @relation(fields: [sourceOriginId], references: [sourceOriginId])
+
+  @@unique([compoundId, compoundTypeId])
+  @@map("compound_type_links")
+}
+
+model SourceOrigin {
+  sourceOriginId String     @id @default(uuid()) @map("source_origin_id") @db.Uuid
+  name           String
+  kind           SourceKind
+  url            String?
+  description    String?
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  deletedAt      DateTime?  @map("deleted_at")
+
+  compoundLinks          CompoundSourceLink[]
+  compoundNames          CompoundName[]
+  externalIdentifiers    ExternalIdentifier[]
+  classificationLinks    CompoundClassificationLink[]
+  typeLinks              CompoundTypeLink[]
+  datasets               Dataset[]
+  relatedDiseaseSources  RelatedDiseaseSource[]
+  sourcePayloads         SourcePayload[]
+  evidenceRecords        EvidenceRecord[]
+
+  @@unique([name, kind])
+  @@map("source_origins")
+}
+
+model CompoundSourceLink {
+  compoundSourceLinkId String   @id @default(uuid()) @map("compound_source_link_id") @db.Uuid
+  compoundId           String   @map("compound_id") @db.Uuid
+  sourceOriginId       String   @map("source_origin_id") @db.Uuid
+  sourceRecordId       String?  @map("source_record_id")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  compound     Compound     @relation(fields: [compoundId], references: [compoundId])
+  sourceOrigin SourceOrigin @relation(fields: [sourceOriginId], references: [sourceOriginId])
+
+  @@unique([compoundId, sourceOriginId, sourceRecordId])
+  @@map("compound_source_links")
+}
+
+model Dataset {
+  datasetId          String            @id @default(uuid()) @map("dataset_id") @db.Uuid
+  title              String
+  description        String?
+  analyticalPlatform String?           @map("analytical_platform")
+  visibility         DatasetVisibility @default(public)
+  ethicalMetadata    Json?             @map("ethical_metadata") @db.JsonB
+  sourceOriginId     String?           @map("source_origin_id") @db.Uuid
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  deletedAt          DateTime?         @map("deleted_at")
+
+  sourceOrigin SourceOrigin? @relation(fields: [sourceOriginId], references: [sourceOriginId])
+  files        DatasetFile[]
+  diseases     DatasetDisease[]
+  presence     CompoundDiseasePresence[]
+
+  @@index([analyticalPlatform])
+  @@map("datasets")
+}
+
+model DatasetFile {
+  datasetFileId String   @id @default(uuid()) @map("dataset_file_id") @db.Uuid
+  datasetId     String   @map("dataset_id") @db.Uuid
+  fileName      String   @map("file_name")
+  fileKind      FileKind @default(json) @map("file_kind")
+  storagePath   String?  @map("storage_path")
+  checksumSha256 String? @map("checksum_sha256")
+  metadata      Json?    @db.JsonB
+  createdAt     DateTime @default(now()) @map("created_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  dataset Dataset @relation(fields: [datasetId], references: [datasetId])
+
+  @@map("dataset_files")
+}
+
+model Disease {
+  diseaseId   String    @id @default(uuid()) @map("disease_id") @db.Uuid
+  name        String
+  ontologyId  String?   @map("ontology_id")
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  names            DiseaseName[]
+  datasets         DatasetDisease[]
+  compoundPresence CompoundDiseasePresence[]
+  relatedCompounds CompoundRelatedDisease[]
+
+  @@unique([name])
+  @@index([ontologyId])
+  @@map("diseases")
+}
+
+model DiseaseName {
+  diseaseNameId String   @id @default(uuid()) @map("disease_name_id") @db.Uuid
+  diseaseId     String   @map("disease_id") @db.Uuid
+  name          String
+  nameType      NameType @default(synonym) @map("name_type")
+  source        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  disease Disease @relation(fields: [diseaseId], references: [diseaseId])
+
+  @@unique([diseaseId, name, nameType])
+  @@index([name])
+  @@map("disease_names")
+}
+
+model DatasetDisease {
+  datasetDiseaseId String   @id @default(uuid()) @map("dataset_disease_id") @db.Uuid
+  datasetId        String   @map("dataset_id") @db.Uuid
+  diseaseId        String   @map("disease_id") @db.Uuid
+  cohortLabel      String?  @map("cohort_label")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  dataset Dataset @relation(fields: [datasetId], references: [datasetId])
+  disease Disease @relation(fields: [diseaseId], references: [diseaseId])
+
+  @@unique([datasetId, diseaseId, cohortLabel])
+  @@map("dataset_diseases")
+}
+
+model CompoundDiseasePresence {
+  compoundDiseasePresenceId String                @id @default(uuid()) @map("compound_disease_presence_id") @db.Uuid
+  compoundId                String                @map("compound_id") @db.Uuid
+  datasetId                 String                @map("dataset_id") @db.Uuid
+  diseaseId                 String                @map("disease_id") @db.Uuid
+  evidenceLevel             PresenceEvidenceLevel @default(reported) @map("evidence_level")
+  frequency                 Decimal?              @db.Decimal(8, 5)
+  presencePercent           Decimal?              @map("presence_percent") @db.Decimal(8, 5)
+  notes                     String?
+  createdAt                 DateTime              @default(now()) @map("created_at")
+  updatedAt                 DateTime              @updatedAt @map("updated_at")
+  deletedAt                 DateTime?             @map("deleted_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+  dataset  Dataset  @relation(fields: [datasetId], references: [datasetId])
+  disease  Disease  @relation(fields: [diseaseId], references: [diseaseId])
+
+  @@unique([compoundId, datasetId, diseaseId])
+  @@index([diseaseId])
+  @@index([datasetId])
+  @@map("compound_disease_presence")
+}
+
+model Reference {
+  referenceId   String        @id @default(uuid()) @map("reference_id") @db.Uuid
+  referenceType ReferenceType @default(article) @map("reference_type")
+  title         String?
+  doi           String?
+  pmid          String?
+  url           String?
+  citation      String?
+  year          Int?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  deletedAt     DateTime?     @map("deleted_at")
+
+  compounds       CompoundReference[]
+  relatedDiseases CompoundRelatedDisease[] @relation("OriginalReference")
+  evidenceRecords EvidenceRecord[]
+
+  @@unique([doi])
+  @@index([pmid])
+  @@map("references")
+}
+
+model CompoundReference {
+  compoundReferenceId String   @id @default(uuid()) @map("compound_reference_id") @db.Uuid
+  compoundId          String   @map("compound_id") @db.Uuid
+  referenceId         String   @map("reference_id") @db.Uuid
+  context             String?
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  compound  Compound  @relation(fields: [compoundId], references: [compoundId])
+  reference Reference @relation(fields: [referenceId], references: [referenceId])
+
+  @@unique([compoundId, referenceId, context])
+  @@map("compound_references")
+}
+
+model CompoundRelatedDisease {
+  compoundRelatedDiseaseId String            @id @default(uuid()) @map("compound_related_disease_id") @db.Uuid
+  compoundId               String            @map("compound_id") @db.Uuid
+  diseaseId                String            @map("disease_id") @db.Uuid
+  assertion                RelationAssertion @default(reported)
+  originalReferenceId      String?           @map("original_reference_id") @db.Uuid
+  notes                    String?
+  createdAt                DateTime          @default(now()) @map("created_at")
+  updatedAt                DateTime          @updatedAt @map("updated_at")
+  deletedAt                DateTime?         @map("deleted_at")
+
+  compound          Compound       @relation(fields: [compoundId], references: [compoundId])
+  disease           Disease        @relation(fields: [diseaseId], references: [diseaseId])
+  originalReference Reference?     @relation("OriginalReference", fields: [originalReferenceId], references: [referenceId])
+  sources           RelatedDiseaseSource[]
+
+  @@unique([compoundId, diseaseId, assertion])
+  @@index([diseaseId])
+  @@map("compound_related_diseases")
+}
+
+model RelatedDiseaseSource {
+  relatedDiseaseSourceId  String                   @id @default(uuid()) @map("related_disease_source_id") @db.Uuid
+  compoundRelatedDiseaseId String                  @map("compound_related_disease_id") @db.Uuid
+  sourceOriginId          String                   @map("source_origin_id") @db.Uuid
+  role                    RelatedDiseaseSourceRole
+  sourceRecordId          String?                  @map("source_record_id")
+  createdAt               DateTime                 @default(now()) @map("created_at")
+
+  relatedDisease CompoundRelatedDisease @relation(fields: [compoundRelatedDiseaseId], references: [compoundRelatedDiseaseId])
+  sourceOrigin   SourceOrigin           @relation(fields: [sourceOriginId], references: [sourceOriginId])
+
+  @@unique([compoundRelatedDiseaseId, sourceOriginId, role])
+  @@map("related_disease_sources")
+}
+
+model EvidenceRecord {
+  evidenceRecordId String   @id @default(uuid()) @map("evidence_record_id") @db.Uuid
+  compoundId       String   @map("compound_id") @db.Uuid
+  sourceOriginId   String?  @map("source_origin_id") @db.Uuid
+  referenceId      String?  @map("reference_id") @db.Uuid
+  evidenceType     String   @map("evidence_type")
+  humanEvidence    Boolean  @default(false) @map("human_evidence")
+  summary          String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  compound     Compound      @relation(fields: [compoundId], references: [compoundId])
+  sourceOrigin SourceOrigin? @relation(fields: [sourceOriginId], references: [sourceOriginId])
+  reference    Reference?    @relation(fields: [referenceId], references: [referenceId])
+
+  @@index([humanEvidence])
+  @@map("evidence_records")
+}
+
+model AnnotationConfidence {
+  annotationConfidenceId String                    @id @default(uuid()) @map("annotation_confidence_id") @db.Uuid
+  compoundId             String                    @unique @map("compound_id") @db.Uuid
+  level                  AnnotationConfidenceLevel @default(unknown)
+  method                 String?
+  rationale              String?
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  updatedAt              DateTime                  @updatedAt @map("updated_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+
+  @@map("annotation_confidence")
+}
+
+model ArtifactAssessment {
+  artifactAssessmentId String       @id @default(uuid()) @map("artifact_assessment_id") @db.Uuid
+  compoundId           String       @map("compound_id") @db.Uuid
+  flag                 ArtifactFlag @default(unknown)
+  rationale            String?
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+
+  @@map("artifact_assessments")
+}
+
+model Pathway {
+  pathwayId   String      @id @default(uuid()) @map("pathway_id") @db.Uuid
+  name        String
+  pathwayType PathwayType @default(other) @map("pathway_type")
+  externalId  String?     @map("external_id")
+  source      String?
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  compounds CompoundPathway[]
+
+  @@unique([name, pathwayType, source])
+  @@map("pathways")
+}
+
+model CompoundPathway {
+  compoundPathwayId String   @id @default(uuid()) @map("compound_pathway_id") @db.Uuid
+  compoundId        String   @map("compound_id") @db.Uuid
+  pathwayId         String   @map("pathway_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+  pathway  Pathway  @relation(fields: [pathwayId], references: [pathwayId])
+
+  @@unique([compoundId, pathwayId])
+  @@map("compound_pathways")
+}
+
+model Target {
+  targetId   String   @id @default(uuid()) @map("target_id") @db.Uuid
+  name       String
+  organism   String?
+  externalId String?  @map("external_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  compounds CompoundTarget[]
+
+  @@unique([name, organism])
+  @@map("targets")
+}
+
+model CompoundTarget {
+  compoundTargetId String           @id @default(uuid()) @map("compound_target_id") @db.Uuid
+  compoundId       String           @map("compound_id") @db.Uuid
+  targetId         String           @map("target_id") @db.Uuid
+  directness       TargetDirectness @default(unknown)
+  sourceOriginId   String?          @map("source_origin_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+  target   Target   @relation(fields: [targetId], references: [targetId])
+
+  @@unique([compoundId, targetId, directness])
+  @@map("compound_targets")
+}
+
+model CompoundNote {
+  compoundNoteId String   @id @default(uuid()) @map("compound_note_id") @db.Uuid
+  compoundId     String   @map("compound_id") @db.Uuid
+  note           String
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  compound Compound @relation(fields: [compoundId], references: [compoundId])
+
+  @@map("compound_notes")
+}
+
+model SourcePayload {
+  sourcePayloadId String   @id @default(uuid()) @map("source_payload_id") @db.Uuid
+  compoundId      String?  @map("compound_id") @db.Uuid
+  sourceOriginId  String?  @map("source_origin_id") @db.Uuid
+  importJobId     String?  @map("import_job_id") @db.Uuid
+  payload         Json     @db.JsonB
+  payloadHash     String?  @map("payload_hash")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  compound     Compound?     @relation(fields: [compoundId], references: [compoundId])
+  sourceOrigin SourceOrigin? @relation(fields: [sourceOriginId], references: [sourceOriginId])
+  importJob    ImportJob?    @relation(fields: [importJobId], references: [importJobId])
+
+  @@index([payloadHash])
+  @@map("source_payloads")
+}
+
+model DuplicateReview {
+  duplicateReviewId String                @id @default(uuid()) @map("duplicate_review_id") @db.Uuid
+  sourceCompoundId  String                @map("source_compound_id") @db.Uuid
+  targetCompoundId  String                @map("target_compound_id") @db.Uuid
+  reason            String?
+  status            DuplicateReviewStatus @default(open)
+  createdAt         DateTime              @default(now()) @map("created_at")
+  resolvedAt        DateTime?             @map("resolved_at")
+
+  sourceCompound Compound @relation("DuplicateSource", fields: [sourceCompoundId], references: [compoundId])
+  targetCompound Compound @relation("DuplicateTarget", fields: [targetCompoundId], references: [compoundId])
+
+  @@unique([sourceCompoundId, targetCompoundId])
+  @@map("duplicate_reviews")
+}
+
+model AuditLog {
+  auditLogId String      @id @default(uuid()) @map("audit_log_id") @db.Uuid
+  userId     String?     @map("user_id") @db.Uuid
+  compoundId String?     @map("compound_id") @db.Uuid
+  entityName String      @map("entity_name")
+  entityId   String      @map("entity_id")
+  action     AuditAction
+  before     Json?       @db.JsonB
+  after      Json?       @db.JsonB
+  metadata   Json?       @db.JsonB
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  user     User?     @relation(fields: [userId], references: [userId])
+  compound Compound? @relation(fields: [compoundId], references: [compoundId])
+
+  @@index([entityName, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model ImportJob {
+  importJobId   String          @id @default(uuid()) @map("import_job_id") @db.Uuid
+  userId        String?         @map("user_id") @db.Uuid
+  status        ImportJobStatus @default(pending)
+  fileName      String?         @map("file_name")
+  summary       Json?           @db.JsonB
+  errorMessage  String?         @map("error_message")
+  startedAt     DateTime?       @map("started_at")
+  completedAt   DateTime?       @map("completed_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  user           User?           @relation(fields: [userId], references: [userId])
+  sourcePayloads SourcePayload[]
+
+  @@map("import_jobs")
+}

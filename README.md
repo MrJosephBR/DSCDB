@@ -32,6 +32,50 @@ Health check:
 GET /api/health
 ```
 
+## Curated JSON Import
+
+Open the import screen:
+
+```text
+http://localhost:3000/imports
+```
+
+Or post a `.json` file as multipart form data:
+
+```text
+POST /api/import/compounds-json
+form field: file
+```
+
+The first importer supports files shaped like:
+
+```json
+{
+  "compounds": [
+    {
+      "identifiers": {
+        "pubchem_cid": "460",
+        "common_name": "Guaiacol",
+        "iupac_name": "2-methoxyphenol",
+        "formula": "C7H8O2",
+        "inchikey": "LHGVFZTZFXWLCP-UHFFFAOYSA-N",
+        "smiles": "COC1=CC=CC=C1O",
+        "hmdb_id": "HMDB0000001",
+        "kegg_id": "C01513"
+      },
+      "database_notes": [],
+      "peaktable_presence": {
+        "asthma": 1,
+        "bronchiectasis": 0,
+        "COPD": 0
+      }
+    }
+  ]
+}
+```
+
+For this milestone, the importer upserts basic compound identity fields, external identifiers, raw source payloads, database notes, respiratory relevance notes, artifact assessment notes, and cautious nonzero peaktable presence records. Zero values are not imported as absence. Presence rows are dataset observations only and are not treated as diagnosis, causality, or confirmed biomarker claims.
+
 ## Development
 
 ```bash

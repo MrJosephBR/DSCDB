@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createCompoundSchema } from "@/modules/compounds/schemas";
-import { validateCompoundJsonImport } from "@/modules/import/json-importer";
+import { validateCompoundJsonImport, validateCuratedCompoundsFile } from "@/modules/import/json-importer";
 
 describe("API input contracts", () => {
   it("requires a positive PubChem CID when creating compounds", () => {
@@ -19,5 +19,19 @@ describe("API input contracts", () => {
     expect(parsed.pubchem_cid).toBe(123);
     expect(parsed.related_diseases).toEqual([]);
     expect(parsed.dataset_presence).toEqual([]);
+  });
+
+  it("validates curated compound file shape", () => {
+    const parsed = validateCuratedCompoundsFile({
+      compounds: [
+        {
+          identifiers: {
+            pubchem_cid: "123"
+          }
+        }
+      ]
+    });
+
+    expect(parsed.compounds).toHaveLength(1);
   });
 });

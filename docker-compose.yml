@@ -32,12 +32,14 @@ services:
       JWT_SECRET: change_this_secret
       UPLOAD_DIR: /app/uploads
       MAX_UPLOAD_SIZE_MB: 50
-    expose:
-      - "3000"
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "3000:3000"
     volumes:
       - uploads:/app/uploads
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
@@ -45,6 +47,8 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: voc-caddy
+    profiles:
+      - production
     restart: unless-stopped
     depends_on:
       - app

@@ -15,12 +15,10 @@ The v1 scope is not clinical diagnosis. A compound detected in a disease dataset
 
 ```bash
 cp .env.example .env
-docker compose up -d
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npx prisma db seed
+docker compose up -d --build
 ```
 
-The web app is exposed at:
+The app container runs Prisma migrations and seed automatically on start. The web app is exposed at:
 
 ```text
 http://localhost:3000
@@ -31,6 +29,15 @@ Health check:
 ```text
 GET /api/health
 ```
+
+Seed credentials for local development:
+
+```text
+email: admin@example.local
+password: change-me
+```
+
+Login writes the `dscdb_session` HTTP-only cookie.
 
 ## Curated JSON Import
 
@@ -81,12 +88,15 @@ The first importer supports files shaped like:
 }
 ```
 
-For this milestone, the importer upserts basic compound identity fields, external identifiers, raw source payloads, database notes, respiratory relevance notes, artifact assessment notes, and cautious nonzero peaktable presence records. Zero values are not imported as absence. Presence rows are dataset observations only and are not treated as diagnosis, causality, or confirmed biomarker claims.
+The importer upserts compound identity fields, external identifiers, ClassyFire-style classifications, compound types, references, evidence records, pathways, targets, related diseases with sources, artifact assessments, annotation confidence, raw source payloads, database notes, respiratory relevance notes, and cautious nonzero peaktable presence records. Zero values are not imported as absence. Presence rows are dataset observations only and are not treated as diagnosis, causality, or confirmed biomarker claims.
+
+The full original compound object is preserved in `source_payloads`. Unknown or partially mapped blocks such as PDB structures, SIMCOMP/similarity, nested pathway data, miscellaneous database notes, and viewer-specific fields are never discarded.
 
 ## Main Pages
 
 - `/compounds` searchable compound table
 - `/compounds/[compoundId]` compound detail
+- `/compounds/new` create compound
 - `/datasets` datasets and disease cohorts
 - `/diseases` diseases and linked compounds
 - `/imports` JSON upload, dry-run, summary, and job history
@@ -136,6 +146,12 @@ npm run prisma:seed
 npm run dev
 ```
 
+When running outside Docker, use a localhost database URL:
+
+```env
+DATABASE_URL="postgresql://voc_user:voc_password@localhost:5432/vocs_db"
+```
+
 ## Tests
 
 ```bash
@@ -164,10 +180,73 @@ Initial tests cover:
 - Deletes are logical via `deleted_at`.
 - Duplicate candidates are reviewed, not merged automatically.
 
-## Production Notes
+## Docker
 
-For Oracle VPS production, PostgreSQL is not exposed publicly in `docker-compose.yml`; it is available only on the internal Docker network. Caddy terminates HTTP/HTTPS and proxies to the app service. Use a real `.env` on the server, set `APP_DOMAIN`, keep `JWT_SECRET` private, and run backups with:
+Local build and run:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Expected local URLs:
+
+```text
+App: http://localhost:3000
+Health: http://localhost:3000/api/health
+```
+
+The default Compose profile starts PostgreSQL 16 and the Next.js app. PostgreSQL is internal to Docker and is not published to the host. For production reverse proxy with Caddy:
+
+```bash
+docker compose --profile production up -d --build
+```
+
+## Oracle VPS
+
+On the VPS:
+
+```bash
+git clone <repo-url> vocs-db
+cd vocs-db
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+APP_ENV="production"
+APP_URL="https://your-domain.example.com"
+APP_DOMAIN="your-domain.example.com"
+JWT_SECRET="replace_with_a_long_random_secret"
+DATABASE_URL="postgresql://voc_user:strong_password@db:5432/vocs_db"
+POSTGRES_PASSWORD="strong_password"
+```
+
+Then run:
+
+```bash
+docker compose --profile production up -d --build
+```
+
+Open only ports `80` and `443` publicly. Do not expose PostgreSQL.
+
+## Backup And Restore
+
+Run backups with:
 
 ```bash
 BACKUP_DIR=/srv/vocs-backups ./scripts/backup.sh
+```
+
+Restore database example:
+
+```bash
+docker exec -i voc-db psql -U voc_user -d vocs_db < /srv/vocs-backups/vocs_db_YYYYMMDD_HHMMSS.sql
+```
+
+Restore uploads example:
+
+```bash
+docker run --rm -v dscdb_uploads:/uploads -v /srv/vocs-backups:/backups alpine sh -c "cd /uploads && tar -xzf /backups/uploads_YYYYMMDD_HHMMSS.tar.gz"
 ```

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import AuthStatus from "./ui/auth-status";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export default async function Home() {
           <a href="/users">Users</a>
           <a href="/login">Login</a>
         </nav>
+        <AuthStatus />
       </aside>
       <section className="main">
         <div className="toolbar">

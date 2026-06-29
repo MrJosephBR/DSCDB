@@ -37,6 +37,14 @@ describe("VOC domain rules", () => {
     expect(entity.deletedAt).toBe(deletedAt);
   });
 
+  it("soft-deleted compounds can be excluded from normal list/export filters", () => {
+    const active = { compoundId: "active", deletedAt: null };
+    const deleted = softDeleteEntity({ compoundId: "deleted", deletedAt: null }, new Date("2026-06-29T00:00:00.000Z"));
+    const visible = [active, deleted].filter((compound) => compound.deletedAt === null);
+
+    expect(visible).toEqual([active]);
+  });
+
   it("records disease presence without causal or biomarker assertions", () => {
     const presence = createPresenceRecord({
       compoundId: "compound-1",

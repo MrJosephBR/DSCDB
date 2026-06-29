@@ -115,4 +115,64 @@ describe("curated compound JSON importer", () => {
     expect(plan.invalidCompounds).toBe(1);
     expect(plan.validationErrors[0].message).toContain("Duplicate PubChem CID 460");
   });
+
+  it("normalizes richer viewer JSON fields without losing raw payload", () => {
+    const payload = {
+      compounds: [
+        {
+          identifiers: {
+            pubchem_cid: "999",
+            common_name: "Example VOC",
+            molecular_weight: "123.45",
+            cas: "50-00-0",
+            chebi: "16842"
+          },
+          classifications: {
+            classyfire: {
+              kingdom: "Organic compounds",
+              superclass: "Phenols",
+              class: "Methoxyphenols"
+            }
+          },
+          metabolites: {
+            type: "endogenous microbial"
+          },
+          reactions_pathways: {
+            pathbank: [{ name: "Human pathway", source: "PathBank", external_id: "PW0001", type: "metabolic" }],
+            biocyc: [{ pathway: "BioCyc oxidation", database: "BioCyc", id: "BIO-1" }]
+          },
+          interactions: {
+            targets: [{ target: "CYP2E1", organism: "Homo sapiens", directness: "predicted" }]
+          },
+          related_diseases: ["Respiratory disease"],
+          exposure_artifact_assessment: {
+            artifact_flag: "possible artifact"
+          },
+          annotation_confidence: {
+            level: "high",
+            method: "curated"
+          },
+          peaktable_presence: {
+            asthma: 1,
+            copd: 0
+          }
+        }
+      ]
+    };
+
+    const plan = buildCuratedCompoundImportPlan(payload);
+    const item = plan.items[0];
+
+    expect(item.molecularWeight).toBe(123.45);
+    expect(item.cas).toBe("50-00-0");
+    expect(item.chebi).toBe("CHEBI:16842");
+    expect(item.classifications).toContain("Methoxyphenols");
+    expect(item.compoundTypes).toEqual(expect.arrayContaining(["endogenous", "microbial"]));
+    expect(item.pathways.map((pathway) => pathway.source)).toEqual(expect.arrayContaining(["PathBank", "BioCyc"]));
+    expect(item.targets[0]).toMatchObject({ name: "CYP2E1", organism: "Homo sapiens", directness: "predicted" });
+    expect(item.relatedDiseases[0]).toMatchObject({ name: "Respiratory disease", sourceRole: "secondary" });
+    expect(item.artifactFlag).toBe("possible_artifact");
+    expect(item.annotationConfidence?.level).toBe("high");
+    expect(item.raw).toEqual(payload.compounds[0]);
+  });
 });

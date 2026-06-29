@@ -53,6 +53,7 @@ a {
 .nav {
   display: grid;
   gap: 8px;
+  margin-bottom: 18px;
 }
 
 .nav a {
@@ -60,6 +61,29 @@ a {
   border-radius: 8px;
   padding: 10px 12px;
   color: #dce5ee;
+}
+
+.session-link,
+.session-box {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #dce5ee;
+}
+
+.session-box small {
+  color: #aebdca;
+}
+
+.session-box button {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px;
+  color: #16202a;
+  background: #f5f8fb;
+  cursor: pointer;
 }
 
 .main {
@@ -348,6 +372,23 @@ dd {
   display: grid;
   gap: 14px;
   margin-top: 18px;
+}
+
+.edit-form {
+  display: grid;
+  gap: 14px;
+  max-width: 720px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.edit-form label {
+  display: grid;
+  gap: 6px;
+  color: #344054;
+  font-weight: 700;
 }
 
 .auth-form label {

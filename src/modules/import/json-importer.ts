@@ -93,6 +93,12 @@ export type CuratedCompoundImportItem = {
   rawHash: string;
   notes: string[];
   artifactNote?: string;
+  artifactFlag: "likely_artifact" | "possible_artifact" | "unlikely_artifact" | "unknown";
+  annotationConfidence?: {
+    level: "high" | "medium" | "low" | "unknown";
+    method?: string;
+    rationale?: string;
+  };
   classifications: string[];
   compoundTypes: string[];
   references: NormalizedReference[];
@@ -217,7 +223,8 @@ export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoun
     seenCids.set(pubchemCid, index);
 
     const notes = normalizeNotes(compound);
-    const artifactNote = normalizeUnknownBlock("exposure_artifact_assessment", compound.exposure_artifact_assessment);
+    const artifactAssessment = normalizeArtifactAssessment(compound.exposure_artifact_assessment);
+    const annotationConfidence = normalizeAnnotationConfidence(compound);
 
     items.push({
       index,
@@ -235,7 +242,9 @@ export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoun
       raw: compound,
       rawHash: stablePayloadHash(compound),
       notes,
-      artifactNote,
+      artifactNote: artifactAssessment.rationale,
+      artifactFlag: artifactAssessment.flag,
+      annotationConfidence,
       classifications: normalizeClassifications(compound.classifications),
       compoundTypes: normalizeCompoundTypes(compound),
       references: normalizeReferences(compound.references),
@@ -507,7 +516,18 @@ async function persistCompoundDetails(
   }
 
   if (item.artifactNote) {
-    await createArtifactAssessmentIfMissing(db, compoundId, item.artifactNote);
+    await createArtifactAssessmentIfMissing(db, compoundId, item.artifactFlag, item.artifactNote);
+  }
+
+  if (item.annotationConfidence) {
+    await db.annotationConfidence.upsert({
+      where: { compoundId },
+      update: item.annotationConfidence,
+      create: {
+        compoundId,
+        ...item.annotationConfidence
+      }
+    });
   }
 
   for (const reference of item.references) {
@@ -606,6 +626,49 @@ function normalizeNotes(compound: CuratedJsonCompound) {
   }
 
   return uniqueStrings(notes.filter(Boolean));
+}
+
+function normalizeArtifactAssessment(value: unknown): {
+  flag: "likely_artifact" | "possible_artifact" | "unlikely_artifact" | "unknown";
+  rationale?: string;
+} {
+  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  const lower = text.toLowerCase();
+
+  let flag: "likely_artifact" | "possible_artifact" | "unlikely_artifact" | "unknown" = "unknown";
+  if (lower.includes("likely") && (lower.includes("artifact") || lower.includes("contaminant"))) {
+    flag = "likely_artifact";
+  } else if (lower.includes("possible") || lower.includes("suspect")) {
+    flag = "possible_artifact";
+  } else if (lower.includes("unlikely") || lower.includes("not artifact")) {
+    flag = "unlikely_artifact";
+  }
+
+  return {
+    flag,
+    rationale: normalizeUnknownBlock("exposure_artifact_assessment", value)
+  };
+}
+
+function normalizeAnnotationConfidence(compound: CuratedJsonCompound) {
+  const text = JSON.stringify(compound).toLowerCase();
+  const confidenceBlock = findFirstRecordByKey(compound, "confidence") ?? findFirstRecordByKey(compound, "annotation_confidence");
+  const confidenceText = JSON.stringify(confidenceBlock ?? text).toLowerCase();
+
+  let level: "high" | "medium" | "low" | "unknown" = "unknown";
+  if (confidenceText.includes("high")) level = "high";
+  else if (confidenceText.includes("medium") || confidenceText.includes("moderate")) level = "medium";
+  else if (confidenceText.includes("low")) level = "low";
+
+  if (level === "unknown" && !confidenceBlock) {
+    return undefined;
+  }
+
+  return {
+    level,
+    method: isRecord(confidenceBlock) ? cleanString(confidenceBlock.method) : undefined,
+    rationale: normalizeUnknownBlock("annotation_confidence", confidenceBlock ?? text)
+  };
 }
 
 function normalizePeaktablePresence(peaktablePresence: CuratedJsonCompound["peaktable_presence"]) {
@@ -717,7 +780,7 @@ function normalizePathways(value: unknown) {
         name,
         pathwayType: normalizePathwayType(cleanString(record.type) ?? cleanString(record.pathway_type) ?? JSON.stringify(record)),
         externalId: cleanString(record.external_id) ?? cleanString(record.id) ?? cleanString(record.kegg_id),
-        source: cleanString(record.source) ?? cleanString(record.database)
+        source: cleanString(record.source) ?? cleanString(record.database) ?? cleanString(record.resource)
       };
     })
     .filter((pathway): pathway is NormalizedPathway => Boolean(pathway));
@@ -744,10 +807,24 @@ function normalizeTargets(value: unknown) {
 }
 
 function normalizeRelatedDiseases(compound: CuratedJsonCompound) {
-  const records = collectRecords(compound.related_diseases);
+  const values = Array.isArray(compound.related_diseases) ? compound.related_diseases : collectRecords(compound.related_diseases);
 
-  return records
+  return values
     .map((record): NormalizedRelatedDisease | null => {
+      if (typeof record === "string") {
+        return {
+          name: record,
+          assertion: "reported",
+          sourceName: "Curated JSON import",
+          sourceRole: "secondary",
+          notes: "Imported as related disease from curated JSON; not dataset presence."
+        };
+      }
+
+      if (!isRecord(record)) {
+        return null;
+      }
+
       const name = cleanString(record.name) ?? cleanString(record.disease) ?? cleanString(record.label);
       if (!name) {
         return null;
@@ -787,16 +864,12 @@ function normalizeDirectness(value: string | undefined): NormalizedTarget["direc
 
 function collectRecords(value: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(value)) {
-    return value.filter(isRecord);
+    return value.flatMap(collectRecords);
   }
 
   if (isRecord(value)) {
-    const directArray = Object.values(value).find(Array.isArray);
-    if (directArray) {
-      return directArray.filter(isRecord);
-    }
-
-    return [value];
+    const nested = Object.values(value).flatMap(collectRecords);
+    return nested.length > 0 ? nested : [value];
   }
 
   return [];
@@ -815,6 +888,23 @@ function uniqueStrings(values: string[]) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function findFirstRecordByKey(value: unknown, needle: string): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+
+  for (const [key, child] of Object.entries(value)) {
+    if (key.toLowerCase().includes(needle) && isRecord(child)) {
+      return child;
+    }
+
+    const nested = findFirstRecordByKey(child, needle);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return undefined;
 }
 
 function makeSummary(input: Omit<CuratedCompoundImportSummary, "totalCompounds" | "createdCompounds" | "updatedCompounds" | "skippedCompounds">): CuratedCompoundImportSummary {
@@ -875,7 +965,12 @@ async function upsertCompoundName(db: Db, compoundId: string, name: string, name
   });
 }
 
-async function createArtifactAssessmentIfMissing(db: Db, compoundId: string, rationale: string) {
+async function createArtifactAssessmentIfMissing(
+  db: Db,
+  compoundId: string,
+  flag: "likely_artifact" | "possible_artifact" | "unlikely_artifact" | "unknown",
+  rationale: string
+) {
   const existing = await db.artifactAssessment.findFirst({
     where: { compoundId, rationale },
     select: { artifactAssessmentId: true }
@@ -885,7 +980,7 @@ async function createArtifactAssessmentIfMissing(db: Db, compoundId: string, rat
     await db.artifactAssessment.create({
       data: {
         compoundId,
-        flag: "unknown",
+        flag,
         rationale
       }
     });

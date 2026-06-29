@@ -57,9 +57,14 @@ export default async function CompoundsPage({ searchParams }: Props) {
           <h1>Compounds</h1>
           <p>Search by PubChem CID, names, disease presence, or artifact assessment.</p>
         </div>
-        <Link className="button secondary" href="/">
-          Dashboard
-        </Link>
+        <div className="button-row">
+          <Link className="button" href="/compounds/new">
+            New compound
+          </Link>
+          <Link className="button secondary" href="/">
+            Dashboard
+          </Link>
+        </div>
       </section>
 
       <form className="filters">

@@ -92,6 +92,7 @@ For this milestone, the importer upserts basic compound identity fields, externa
 - `/imports` JSON upload, dry-run, summary, and job history
 - `/duplicates` duplicate review queue
 - `/audit` audit log
+- `/users` admin-only user management
 - `/login` local development login
 
 ## API Routes
@@ -107,9 +108,17 @@ For this milestone, the importer upserts basic compound identity fields, externa
 - `GET /api/audit`
 - `GET /api/duplicates`
 - `PATCH /api/duplicates/[id]`
+- `GET /api/auth/me`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/users`
+- `POST /api/users`
+- `PATCH /api/users/[id]`
+- `DELETE /api/users/[id]`
 - `GET /api/export/combined`
 
 Write routes require login as `editor`, `curator`, or `admin`. Duplicate review updates require `curator` or `admin`.
+User management requires `admin`.
 
 Combined export supports filters:
 

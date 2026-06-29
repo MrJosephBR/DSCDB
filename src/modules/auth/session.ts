@@ -58,7 +58,10 @@ export function verifySessionToken(token: string | undefined | null): AuthSessio
 }
 
 export function getSessionFromRequest(request: Request) {
-  const cookieHeader = request.headers.get("cookie") ?? "";
+  return getSessionFromCookieHeader(request.headers.get("cookie") ?? "");
+}
+
+export function getSessionFromCookieHeader(cookieHeader: string) {
   const token = cookieHeader
     .split(";")
     .map((part) => part.trim())

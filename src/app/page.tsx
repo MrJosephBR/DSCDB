@@ -36,6 +36,7 @@ export default async function Home() {
           <a href="/imports">Imports</a>
           <a href="/duplicates">Duplicates</a>
           <a href="/audit">Audit</a>
+          <a href="/users">Users</a>
           <a href="/login">Login</a>
         </nav>
       </aside>

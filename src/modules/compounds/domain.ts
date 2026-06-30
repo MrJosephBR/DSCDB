@@ -31,7 +31,7 @@ export function assertPubChemCidIsAvailable(pubchemCid: number, existingCids: Se
   }
 }
 
-export function createCompoundDraft(input: CreateCompoundInput, existingCids = new Set<number>()) {
+export function createCompoundDraft(input: CompoundDraft & { names?: unknown[] }, existingCids = new Set<number>()) {
   assertPubChemCidIsAvailable(input.pubchemCid, existingCids);
 
   return {

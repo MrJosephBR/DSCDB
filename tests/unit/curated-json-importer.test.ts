@@ -123,9 +123,12 @@ describe("curated compound JSON importer", () => {
           identifiers: {
             pubchem_cid: "999",
             common_name: "Example VOC",
+            exact_mass: "123.044",
             molecular_weight: "123.45",
             cas: "50-00-0",
-            chebi: "16842"
+            chebi: "16842",
+            drugbank_id: "DB0001",
+            synonyms: ["Example synonym"]
           },
           classifications: {
             classyfire: {
@@ -164,8 +167,11 @@ describe("curated compound JSON importer", () => {
     const item = plan.items[0];
 
     expect(item.molecularWeight).toBe(123.45);
+    expect(item.exactMass).toBe(123.044);
     expect(item.cas).toBe("50-00-0");
     expect(item.chebi).toBe("CHEBI:16842");
+    expect(item.drugbankId).toBe("DB0001");
+    expect(item.names).toContain("Example synonym");
     expect(item.classifications).toContain("Methoxyphenols");
     expect(item.compoundTypes).toEqual(expect.arrayContaining(["endogenous", "microbial"]));
     expect(item.pathways.map((pathway) => pathway.source)).toEqual(expect.arrayContaining(["PathBank", "BioCyc"]));

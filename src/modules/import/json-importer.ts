@@ -18,6 +18,7 @@ const identifiersSchema = z
     iupac_name: z.string().optional(),
     formula: z.string().optional(),
     molecular_formula: z.string().optional(),
+    exact_mass: z.union([z.string(), z.number()]).optional(),
     molecular_weight: z.union([z.string(), z.number()]).optional(),
     inchi: z.string().optional(),
     inchikey: z.string().optional(),
@@ -27,7 +28,14 @@ const identifiersSchema = z
     hmdb_id: z.string().optional(),
     kegg_id: z.string().optional(),
     cas: z.string().optional(),
-    chebi: z.string().optional()
+    chebi: z.string().optional(),
+    pdb_id: z.string().optional(),
+    pathbank_id: z.string().optional(),
+    biocyc_id: z.string().optional(),
+    plantcyc_id: z.string().optional(),
+    drugbank_id: z.string().optional(),
+    uniprot_id: z.string().optional(),
+    synonyms: z.union([z.string(), z.array(z.string())]).optional()
   })
   .passthrough();
 
@@ -86,6 +94,7 @@ export type CuratedCompoundImportItem = {
   iupacName?: string;
   formula?: string;
   molecularWeight?: number;
+  exactMass?: number;
   inchikey?: string;
   inchi?: string;
   smiles?: string;
@@ -95,6 +104,13 @@ export type CuratedCompoundImportItem = {
   keggId?: string;
   cas?: string;
   chebi?: string;
+  pdbId?: string;
+  pathbankId?: string;
+  biocycId?: string;
+  plantcycId?: string;
+  drugbankId?: string;
+  uniprotId?: string;
+  names: string[];
   raw: CuratedJsonCompound;
   rawHash: string;
   notes: string[];
@@ -253,6 +269,7 @@ export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoun
       iupacName: cleanString(identifiers.iupac_name),
       formula: cleanString(identifiers.formula) ?? cleanString(identifiers.molecular_formula),
       molecularWeight: normalizeNumber(identifiers.molecular_weight),
+      exactMass: normalizeNumber(identifiers.exact_mass),
       inchi: cleanString(identifiers.inchi),
       inchikey: cleanString(identifiers.inchikey),
       smiles: cleanString(identifiers.smiles),
@@ -262,6 +279,13 @@ export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoun
       keggId: cleanString(identifiers.kegg_id),
       cas: cleanString(identifiers.cas),
       chebi: normalizeChebi(cleanString(identifiers.chebi)),
+      pdbId: cleanString(identifiers.pdb_id),
+      pathbankId: cleanString(identifiers.pathbank_id),
+      biocycId: cleanString(identifiers.biocyc_id),
+      plantcycId: cleanString(identifiers.plantcyc_id),
+      drugbankId: cleanString(identifiers.drugbank_id),
+      uniprotId: cleanString(identifiers.uniprot_id),
+      names: normalizeSynonyms(identifiers.synonyms),
       raw: compound,
       rawHash: stablePayloadHash(compound),
       notes,
@@ -454,6 +478,7 @@ async function persistCompoundDetails(
     where: { compoundId },
     update: {
       formula: item.formula,
+      exactMass: item.exactMass,
       molecularWeight: item.molecularWeight,
       inchi: item.inchi,
       inchiKey: item.inchikey,
@@ -464,6 +489,7 @@ async function persistCompoundDetails(
     create: {
       compoundId,
       formula: item.formula,
+      exactMass: item.exactMass,
       molecularWeight: item.molecularWeight,
       inchi: item.inchi,
       inchiKey: item.inchikey,
@@ -481,6 +507,12 @@ async function persistCompoundDetails(
   await upsertExternalIdentifier(db, compoundId, "KEGG", item.keggId, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "CAS", item.cas, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "ChEBI", item.chebi, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "PDB", item.pdbId, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "PathBank", item.pathbankId, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "BioCyc", item.biocycId, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "PlantCyc", item.plantcycId, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "DrugBank", item.drugbankId, sourceOriginId);
+  await upsertExternalIdentifier(db, compoundId, "UniProt", item.uniprotId, sourceOriginId);
 
   await db.sourcePayload.create({
     data: {
@@ -496,6 +528,10 @@ async function persistCompoundDetails(
 
   for (const name of [item.commonName, item.iupacName].filter(Boolean) as string[]) {
     await upsertCompoundName(db, compoundId, name, name === item.iupacName ? "iupac" : "common", sourceOriginId);
+  }
+
+  for (const name of item.names) {
+    await upsertCompoundName(db, compoundId, name, "synonym", sourceOriginId);
   }
 
   for (const classificationName of item.classifications) {
@@ -631,6 +667,18 @@ function normalizeChebi(value: string | undefined) {
   }
 
   return value.startsWith("CHEBI:") ? value : `CHEBI:${value}`;
+}
+
+function normalizeSynonyms(value: unknown) {
+  if (typeof value === "string") {
+    return uniqueStrings(value.split(/[;\n|]/));
+  }
+
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.filter((item): item is string => typeof item === "string"));
+  }
+
+  return [];
 }
 
 function stablePayloadHash(value: unknown) {
@@ -988,7 +1036,21 @@ function makeSummary(input: Omit<CuratedCompoundImportSummary, "totalCompounds" 
 async function upsertExternalIdentifier(
   db: Db,
   compoundId: string,
-  database: "PubChem" | "InChI" | "InChIKey" | "SMILES" | "HMDB" | "KEGG" | "CAS" | "ChEBI",
+  database:
+    | "PubChem"
+    | "InChI"
+    | "InChIKey"
+    | "SMILES"
+    | "HMDB"
+    | "KEGG"
+    | "CAS"
+    | "ChEBI"
+    | "PDB"
+    | "PathBank"
+    | "BioCyc"
+    | "PlantCyc"
+    | "DrugBank"
+    | "UniProt",
   identifier: string | undefined,
   sourceOriginId: string
 ) {
@@ -1067,7 +1129,7 @@ async function upsertPdbStructure(db: Db, compoundId: string, pdbStructure: Norm
   });
 }
 
-async function upsertCompoundName(db: Db, compoundId: string, name: string, nameType: "common" | "iupac", sourceOriginId: string) {
+async function upsertCompoundName(db: Db, compoundId: string, name: string, nameType: "common" | "iupac" | "synonym", sourceOriginId: string) {
   await db.compoundName.upsert({
     where: {
       compoundId_name_nameType: {

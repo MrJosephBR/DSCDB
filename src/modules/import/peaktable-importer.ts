@@ -1,3 +1,4 @@
+import { inflateRawSync } from "zlib";
 import { Prisma, type PrismaClient } from "@prisma/client";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -12,6 +13,7 @@ export type PeakTableSummary = {
   createdMeasurements: number;
   validationErrors: string[];
   dryRun: boolean;
+  importJobId?: string;
 };
 
 export function parsePeakTableCsv(text: string) {
@@ -21,20 +23,58 @@ export function parsePeakTableCsv(text: string) {
     .filter(Boolean)
     .map(parseCsvLine);
 
+  return parsePeakTableRows(rows);
+}
+
+export function parsePeakTableXlsx(buffer: Buffer | ArrayBuffer) {
+  const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+  const entries = readZipEntries(bytes);
+  const sheetEntryName =
+    [...entries.keys()].find((name) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(name)) ?? "xl/worksheets/sheet1.xml";
+  const sheetXml = entries.get(sheetEntryName);
+
+  if (!sheetXml) {
+    throw new Error("XLSX file does not contain a worksheet");
+  }
+
+  const sharedStrings = parseSharedStrings(entries.get("xl/sharedStrings.xml")?.toString("utf8") ?? "");
+  const rows = parseWorksheetRows(sheetXml.toString("utf8"), sharedStrings);
+  return parsePeakTableRows(rows);
+}
+
+export function peakTableXlsxToCsv(buffer: Buffer | ArrayBuffer) {
+  const parsed = parsePeakTableXlsx(buffer);
+  return [parsed.headers, ...parsed.rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function parsePeakTableRows(rows: string[][]) {
   if (rows.length < 2) {
-    throw new Error("Peak table CSV must include a header row and at least one data row");
+    throw new Error("Peak table must include a header row and at least one data row");
   }
 
   const headers = rows[0].map((header) => header.trim());
+  const emptyHeaderIndexes = headers
+    .map((header, index) => ({ header, index }))
+    .filter((item) => item.header.length === 0)
+    .map((item) => item.index + 1);
+
+  if (emptyHeaderIndexes.length > 0) {
+    throw new Error(`Peak table has empty header columns: ${emptyHeaderIndexes.join(", ")}`);
+  }
+
   const cidIndex = headers.findIndex((header) => /pubchem|cid/i.test(header));
 
   if (cidIndex === -1) {
-    throw new Error("Peak table CSV must include a PubChem CID column");
+    throw new Error("Peak table must include a PubChem CID column");
   }
 
   const sampleIndexes = headers
     .map((header, index) => ({ header, index }))
     .filter((item) => item.index !== cidIndex && item.header.length > 0);
+
+  if (sampleIndexes.length === 0) {
+    throw new Error("Peak table must include at least one sample column");
+  }
 
   return {
     headers,
@@ -59,6 +99,13 @@ export function summarizePeakTableCsv(text: string, dryRun = true): PeakTableSum
       validationErrors.push(`row ${rowIndex + 2}: duplicate PubChem CID ${cid}`);
     }
     seen.add(cid);
+
+    parsed.sampleColumns.forEach((column) => {
+      const value = row[column.index];
+      if (value === undefined) {
+        validationErrors.push(`row ${rowIndex + 2}: missing value for sample column ${column.header}`);
+      }
+    });
   });
 
   return {
@@ -81,8 +128,21 @@ export async function importPeakTableCsv(
 ): Promise<PeakTableSummary> {
   const drySummary = summarizePeakTableCsv(text, Boolean(options.dryRun));
   if (options.dryRun) return drySummary;
+  if (drySummary.validationErrors.length > 0) {
+    throw new Error(`Peak table validation failed: ${drySummary.validationErrors.join("; ")}`);
+  }
 
   const parsed = parsePeakTableCsv(text);
+  const importJob = await db.importJob.create({
+    data: {
+      userId: options.userId,
+      status: "running",
+      fileName: options.fileName,
+      fileType: "peak_table_csv",
+      dryRun: false,
+      startedAt: new Date()
+    }
+  });
   const disease = await db.disease.upsert({
     where: { name: options.diseaseName },
     update: { normalizedName: options.diseaseName.toLowerCase() },
@@ -107,8 +167,10 @@ export async function importPeakTableCsv(
       datasetId: dataset.datasetId,
       diseaseId: disease.diseaseId,
       fileName: options.fileName ?? "uploaded-peaktable.csv",
-      fileKind: "csv",
-      fileType: "text/csv",
+      fileKind: options.fileName?.toLowerCase().endsWith(".xlsx") ? "other" : "csv",
+      fileType: options.fileName?.toLowerCase().endsWith(".xlsx")
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "text/csv",
       fileRole: "peaktable",
       rowCount: parsed.rows.length,
       columnCount: parsed.headers.length,
@@ -124,12 +186,25 @@ export async function importPeakTableCsv(
   for (const column of parsed.sampleColumns) {
     const sample = await db.sample.upsert({
       where: { datasetId_sampleCode: { datasetId: dataset.datasetId, sampleCode: column.header } },
-      update: { diseaseId: disease.diseaseId, cohortLabel: disease.name },
+      update: {
+        diseaseId: disease.diseaseId,
+        cohortLabel: disease.name,
+        metadata: {
+          sourceFileName: options.fileName,
+          sourceColumnIndex: column.index,
+          importJobId: importJob.importJobId
+        }
+      },
       create: {
         datasetId: dataset.datasetId,
         diseaseId: disease.diseaseId,
         sampleCode: column.header,
-        cohortLabel: disease.name
+        cohortLabel: disease.name,
+        metadata: {
+          sourceFileName: options.fileName,
+          sourceColumnIndex: column.index,
+          importJobId: importJob.importJobId
+        }
       }
     });
     samples.set(column.header, sample.sampleId);
@@ -207,15 +282,44 @@ export async function importPeakTableCsv(
         notes: "Aggregated from uploaded peak table. Dataset observation only; not diagnostic, causal, or confirmed biomarker evidence."
       }
     });
+
+    await db.auditLog.create({
+      data: {
+        userId: options.userId,
+        compoundId: compound.compoundId,
+        entityName: "compound",
+        entityId: compound.compoundId,
+        action: "import",
+        metadata: {
+          importJobId: importJob.importJobId,
+          source: "peak_table_csv",
+          fileName: options.fileName,
+          datasetTitle: dataset.title,
+          diseaseName: disease.name
+        }
+      }
+    });
   }
 
-  return {
+  const summary = {
     ...drySummary,
     dryRun: false,
     createdCompounds,
     createdSamples,
-    createdMeasurements
+    createdMeasurements,
+    importJobId: importJob.importJobId
   };
+
+  await db.importJob.update({
+    where: { importJobId: importJob.importJobId },
+    data: {
+      status: "completed",
+      completedAt: new Date(),
+      summary: summary as unknown as Prisma.InputJsonValue
+    }
+  });
+
+  return summary;
 }
 
 function parseCsvLine(line: string) {
@@ -237,6 +341,110 @@ function parseCsvLine(line: string) {
 
   values.push(current);
   return values.map((value) => value.trim().replace(/^"|"$/g, ""));
+}
+
+function readZipEntries(bytes: Buffer) {
+  const entries = new Map<string, Buffer>();
+  const endOffset = findEndOfCentralDirectory(bytes);
+  const totalEntries = bytes.readUInt16LE(endOffset + 10);
+  let offset = bytes.readUInt32LE(endOffset + 16);
+
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (bytes.readUInt32LE(offset) !== 0x02014b50) {
+      throw new Error("Invalid XLSX central directory");
+    }
+
+    const compressionMethod = bytes.readUInt16LE(offset + 10);
+    const compressedSize = bytes.readUInt32LE(offset + 20);
+    const fileNameLength = bytes.readUInt16LE(offset + 28);
+    const extraLength = bytes.readUInt16LE(offset + 30);
+    const commentLength = bytes.readUInt16LE(offset + 32);
+    const localHeaderOffset = bytes.readUInt32LE(offset + 42);
+    const name = bytes.subarray(offset + 46, offset + 46 + fileNameLength).toString("utf8");
+
+    const localNameLength = bytes.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = bytes.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressed = bytes.subarray(dataStart, dataStart + compressedSize);
+
+    if (compressionMethod === 0) {
+      entries.set(name, compressed);
+    } else if (compressionMethod === 8) {
+      entries.set(name, inflateRawSync(compressed));
+    } else {
+      throw new Error(`Unsupported XLSX compression method ${compressionMethod}`);
+    }
+
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return entries;
+}
+
+function findEndOfCentralDirectory(bytes: Buffer) {
+  for (let offset = bytes.length - 22; offset >= 0; offset -= 1) {
+    if (bytes.readUInt32LE(offset) === 0x06054b50) {
+      return offset;
+    }
+  }
+
+  throw new Error("Invalid XLSX file");
+}
+
+function parseSharedStrings(xml: string) {
+  const sharedStrings: string[] = [];
+  for (const match of xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
+    const text = [...match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((part) => decodeXml(part[1])).join("");
+    sharedStrings.push(text);
+  }
+  return sharedStrings;
+}
+
+function parseWorksheetRows(xml: string, sharedStrings: string[]) {
+  const rows: string[][] = [];
+
+  for (const rowMatch of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const row: string[] = [];
+
+    for (const cellMatch of rowMatch[1].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+      const attrs = cellMatch[1];
+      const body = cellMatch[2];
+      const ref = attrs.match(/\br="([A-Z]+)\d+"/)?.[1];
+      const index = ref ? columnNameToIndex(ref) : row.length;
+      const type = attrs.match(/\bt="([^"]+)"/)?.[1];
+      const rawValue = body.match(/<v>([\s\S]*?)<\/v>/)?.[1];
+      const inlineValue = body.match(/<t\b[^>]*>([\s\S]*?)<\/t>/)?.[1];
+
+      if (type === "s" && rawValue !== undefined) {
+        row[index] = sharedStrings[Number(rawValue)] ?? "";
+      } else if (type === "inlineStr" && inlineValue !== undefined) {
+        row[index] = decodeXml(inlineValue);
+      } else {
+        row[index] = decodeXml(rawValue ?? "");
+      }
+    }
+
+    rows.push(row.map((value) => value ?? ""));
+  }
+
+  return rows.filter((row) => row.some((value) => value.trim().length > 0));
+}
+
+function columnNameToIndex(name: string) {
+  return name.split("").reduce((total, char) => total * 26 + char.charCodeAt(0) - 64, 0) - 1;
+}
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function csvEscape(value: string) {
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 function normalizeCid(value: string | undefined) {

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { jsonError } from "@/lib/http";
 import { requireRole } from "@/modules/auth/session";
-import { importPeakTableCsv } from "@/modules/import/peaktable-importer";
+import { importPeakTableCsv, peakTableXlsxToCsv } from "@/modules/import/peaktable-importer";
 
 export const runtime = "nodejs";
 
@@ -16,14 +16,15 @@ export async function POST(request: Request) {
     const diseaseName = String(formData.get("diseaseName") || "unknown");
 
     if (!(file instanceof File)) {
-      return Response.json({ error: "ValidationError", message: "A CSV file is required" }, { status: 400 });
+      return Response.json({ error: "ValidationError", message: "A .csv or .xlsx peak table file is required" }, { status: 400 });
     }
 
-    if (!file.name.toLowerCase().endsWith(".csv")) {
-      return Response.json({ error: "ValidationError", message: "Only .csv peak tables are supported in this first importer" }, { status: 400 });
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith(".csv") && !lowerName.endsWith(".xlsx")) {
+      return Response.json({ error: "ValidationError", message: "Only .csv and .xlsx peak tables are supported" }, { status: 400 });
     }
 
-    const text = await file.text();
+    const text = lowerName.endsWith(".xlsx") ? peakTableXlsxToCsv(await file.arrayBuffer()) : await file.text();
     const summary = dryRun
       ? await importPeakTableCsv(prisma, text, { fileName: file.name, datasetTitle, diseaseName, userId: session.userId, dryRun: true })
       : await prisma.$transaction(

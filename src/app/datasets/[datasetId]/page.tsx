@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 
@@ -19,7 +20,7 @@ export default async function DatasetDetailPage({ params }: Props) {
 
   return (
     <main className="page">
-      <section className="page-header"><div><h1>{dataset.title}</h1><p>{dataset.description ?? "Dataset detail"}</p></div><a className="button secondary" href="/datasets">Datasets</a></section>
+      <section className="page-header"><div><h1>{dataset.title}</h1><p>{dataset.description ?? "Dataset detail"}</p></div><Link className="button secondary" href="/datasets">Datasets</Link></section>
       <section className="detail-grid">
         <section className="detail-block"><h2>Metadata</h2><dl><dt>Technology</dt><dd>{dataset.technology ?? dataset.analyticalPlatform ?? ""}</dd><dt>Matrix</dt><dd>{dataset.sampleMatrix ?? ""}</dd><dt>DOI</dt><dd>{dataset.doi ?? ""}</dd></dl></section>
         <section className="detail-block"><h2>Diseases</h2><SimpleList items={dataset.diseases.map((item) => item.disease.name)} /></section>

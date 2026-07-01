@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export default async function TargetsPage() {
 
   return (
     <main className="page">
-      <section className="page-header"><div><h1>Targets</h1><p>Protein, gene, receptor, and predicted target records.</p></div><a className="button secondary" href="/">Dashboard</a></section>
+      <section className="page-header"><div><h1>Targets</h1><p>Protein, gene, receptor, and predicted target records.</p></div><Link className="button secondary" href="/">Dashboard</Link></section>
       <table className="table">
         <thead><tr><th>Name</th><th>Gene</th><th>UniProt</th><th>Organism</th><th>Human</th><th>Compounds</th></tr></thead>
         <tbody>{targets.map((target) => <tr key={target.targetId}><td>{target.name}</td><td>{target.geneSymbol ?? ""}</td><td>{target.uniprotId ?? target.externalId ?? ""}</td><td>{target.organism ?? ""}</td><td>{target.isHuman === null ? "" : String(target.isHuman)}</td><td>{target._count.compounds}</td></tr>)}</tbody>

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionFromCookieHeader } from "@/modules/auth/session";
 import AccountForm from "./ui/account-form";
@@ -19,9 +20,9 @@ export default async function AccountPage() {
             {session.email} ({session.role})
           </p>
         </div>
-        <a className="button secondary" href="/">
+        <Link className="button secondary" href="/">
           Dashboard
-        </a>
+        </Link>
       </section>
       <AccountForm />
     </main>

@@ -5,6 +5,7 @@ import Badge from "./ui/badge";
 import DataTable from "./ui/data-table";
 import EmptyState from "./ui/empty-state";
 import SectionCard from "./ui/section-card";
+import { EmptyValue } from "./ui/scientific-values";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +14,18 @@ async function getDashboardMetrics() {
     compounds,
     datasets,
     diseases,
+    compoundsWithPresence,
     pendingDuplicates,
     compoundsWithPathways,
     compoundsWithTargets,
-    artifactCandidates
+    artifactCandidates,
+    recentImports,
+    recentAuditActivity
   ] = await Promise.all([
     prisma.compound.count({ where: { deletedAt: null } }),
     prisma.dataset.count({ where: { deletedAt: null } }),
     prisma.disease.count({ where: { deletedAt: null } }),
+    prisma.compound.count({ where: { deletedAt: null, diseasePresence: { some: { deletedAt: null } } } }),
     prisma.duplicateReview.count({ where: { status: "open" } }),
     prisma.compound.count({ where: { deletedAt: null, pathways: { some: {} } } }),
     prisma.compound.count({ where: { deletedAt: null, targets: { some: {} } } }),
@@ -29,17 +34,22 @@ async function getDashboardMetrics() {
         deletedAt: null,
         artifactAssessments: { some: { flag: { in: ["possible_artifact", "likely_artifact"] } } }
       }
-    })
+    }),
+    prisma.importJob.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 5 })
   ]);
 
   return {
     compounds,
     datasets,
     diseases,
+    compoundsWithPresence,
     pendingDuplicates,
     compoundsWithPathways,
     compoundsWithTargets,
-    artifactCandidates
+    artifactCandidates,
+    recentImports,
+    recentAuditActivity
   };
 }
 
@@ -80,10 +90,58 @@ export default async function Home() {
         <Metric label="Compounds" value={metrics.compounds} />
         <Metric label="Datasets" value={metrics.datasets} />
         <Metric label="Diseases" value={metrics.diseases} />
-        <Metric label="Pending duplicate reviews" value={metrics.pendingDuplicates} />
+        <Metric label="With dataset presence" value={metrics.compoundsWithPresence} />
+        <Metric label="Possible/Likely artifacts" value={metrics.artifactCandidates} />
         <Metric label="Compounds with pathways" value={metrics.compoundsWithPathways} />
         <Metric label="Compounds with targets/interactions" value={metrics.compoundsWithTargets} />
-        <Metric label="Possible/Likely artifacts" value={metrics.artifactCandidates} />
+        <Metric label="Pending duplicate reviews" value={metrics.pendingDuplicates} />
+      </section>
+
+      <section className="quick-action-grid" aria-label="Quick actions">
+        <QuickAction href="/imports" title="Import curated JSON" description="Load structured compound identity, evidence, references, pathways, and audit payloads." />
+        <QuickAction href="/imports" title="Import peak table CSV" description="Create datasets, samples, measurements, and disease presence from GC-MS peak tables." />
+        <QuickAction href="/compounds" title="Browse compounds" description="Search by name, synonym, CID, InChIKey, HMDB, KEGG, SMILES, pathway, or target." />
+        <QuickAction href="/duplicates" title="Review duplicates" description="Resolve possible duplicate compounds without automatic destructive merges." />
+      </section>
+
+      <SectionCard title="Research guardrails" description="Interpretation boundaries shown across DSCDB.">
+        <div className="guardrail-list">
+          <div><strong>Dataset observations are not diagnostic claims.</strong><span>Presence in asthma, bronchiectasis, or COPD datasets is stored as observation only.</span></div>
+          <div><strong>External disease links are separate.</strong><span>Related diseases from databases or literature are not equal to detection in a dataset.</span></div>
+          <div><strong>Model importance is candidate evidence.</strong><span>SHAP or model-derived importance is not a confirmed biomarker by itself.</span></div>
+        </div>
+      </SectionCard>
+
+      <section className="dashboard-two-column">
+        <SectionCard title="Recent imports" description="Latest data-loading activity.">
+          <DataTable headers={["File", "Status", "Created"]}>
+            {metrics.recentImports.map((job) => (
+              <tr key={job.importJobId}>
+                <td><Link href={`/imports/${job.importJobId}`}>{job.fileName ?? "Unnamed import"}</Link></td>
+                <td><Badge variant={job.status === "completed" ? "success" : job.status === "failed" ? "danger" : "neutral"}>{job.status}</Badge></td>
+                <td>{formatDate(job.createdAt)}</td>
+              </tr>
+            ))}
+            {metrics.recentImports.length === 0 ? (
+              <tr><td colSpan={3}><EmptyState title="No imports recorded yet." /></td></tr>
+            ) : null}
+          </DataTable>
+        </SectionCard>
+
+        <SectionCard title="Recent audit activity" description="Latest curation events.">
+          <DataTable headers={["Action", "Entity", "Date"]}>
+            {metrics.recentAuditActivity.map((log) => (
+              <tr key={log.auditLogId}>
+                <td><Badge variant="neutral">{labelize(log.action)}</Badge></td>
+                <td>{log.entityName}</td>
+                <td>{formatDate(log.createdAt)}</td>
+              </tr>
+            ))}
+            {metrics.recentAuditActivity.length === 0 ? (
+              <tr><td colSpan={3}><EmptyState title="No audit activity recorded yet." /></td></tr>
+            ) : null}
+          </DataTable>
+        </SectionCard>
       </section>
 
       <SectionCard
@@ -102,21 +160,21 @@ export default async function Home() {
                 </td>
                 <td>
                   <Link className="row-link" href={href}>
-                    <span className="primary-text">{compound.commonName ?? "Not curated"}</span>
+                    <span className="primary-text">{compound.commonName ?? `CID ${compound.pubchemCid}`}</span>
                     <br />
-                    <span className="muted">{compound.iupacName ?? "IUPAC name not curated"}</span>
+                    <span className="muted">{compound.iupacName ?? <EmptyValue />}</span>
                   </Link>
                 </td>
                 <td>
                   <Link className="row-link" href={href}>
-                    {compound.molecularFormula ?? compound.identity?.formula ?? "Not curated"}
+                    {compound.molecularFormula ?? compound.identity?.formula ?? <EmptyValue />}
                   </Link>
                 </td>
                 <td>
                   <Link className="row-link" href={href}>
                     <ChipList
                       items={compound.diseasePresence.map((presence) => presence.disease.name)}
-                      empty="None recorded"
+                      empty="—"
                       variant="info"
                     />
                   </Link>
@@ -125,7 +183,7 @@ export default async function Home() {
                   <Link className="row-link" href={href}>
                     <ChipList
                       items={compound.artifactAssessments.map((assessment) => labelize(assessment.flag))}
-                      empty="None recorded"
+                      empty="—"
                       variant={artifactVariant(compound.artifactAssessments[0]?.flag)}
                     />
                   </Link>
@@ -139,7 +197,7 @@ export default async function Home() {
                     ) : compound.evidenceRecords.length > 0 ? (
                       <Badge variant="neutral">{compound.evidenceRecords.length} records</Badge>
                     ) : (
-                      <span className="muted">None recorded</span>
+                      <EmptyValue />
                     )}
                   </Link>
                 </td>
@@ -161,6 +219,15 @@ export default async function Home() {
         </DataTable>
       </SectionCard>
     </AppShell>
+  );
+}
+
+function QuickAction({ href, title, description }: { href: string; title: string; description: string }) {
+  return (
+    <Link className="quick-action" href={href}>
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </Link>
   );
 }
 

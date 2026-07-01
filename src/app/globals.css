@@ -383,6 +383,53 @@ button.button {
   color: var(--text-muted);
 }
 
+.quick-action-grid,
+.dashboard-two-column {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 24px;
+}
+
+.dashboard-two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.quick-action {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+}
+
+.quick-action:hover {
+  border-color: rgba(14, 118, 110, 0.42);
+}
+
+.quick-action strong {
+  color: var(--text);
+}
+
+.quick-action span,
+.guardrail-list span {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.guardrail-list {
+  display: grid;
+  gap: 12px;
+}
+
+.guardrail-list div {
+  display: grid;
+  gap: 4px;
+}
+
 .table-wrap {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -395,7 +442,7 @@ button.button {
   background: var(--surface);
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 100%;
+  min-width: 960px;
   width: 100%;
 }
 
@@ -428,7 +475,7 @@ button.button {
 .row-link {
   display: block;
   height: 100%;
-  min-width: max-content;
+  min-width: 0;
 }
 
 .clickable-row {
@@ -448,6 +495,27 @@ button.button {
 
 .mono {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
+.empty-value {
+  color: var(--text-muted);
+}
+
+.field-value {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.field-value-chemical {
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.field-value-long {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
 }
 
 .chip-list {
@@ -631,6 +699,14 @@ textarea:focus {
   margin-bottom: 12px;
 }
 
+.summary-panel .key-value-row {
+  grid-template-columns: 1fr;
+}
+
+.summary-panel dd {
+  overflow-wrap: anywhere;
+}
+
 .summary-group + .summary-group {
   border-top: 1px solid var(--border);
   margin-top: 14px;
@@ -646,7 +722,7 @@ textarea:focus {
 dl {
   display: grid;
   gap: 8px 12px;
-  grid-template-columns: 130px minmax(0, 1fr);
+  grid-template-columns: minmax(132px, 0.34fr) minmax(220px, 1fr);
   margin: 0;
 }
 
@@ -659,7 +735,9 @@ dt {
 .key-value-row dd,
 dd {
   margin: 0;
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .anchor-nav {
@@ -910,7 +988,9 @@ pre {
 
 @media (max-width: 1180px) {
   .metric-grid,
-  .grid {
+  .grid,
+  .quick-action-grid,
+  .dashboard-two-column {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -983,6 +1063,8 @@ pre {
 
   .metric-grid,
   .grid,
+  .quick-action-grid,
+  .dashboard-two-column,
   .nav {
     grid-template-columns: 1fr;
   }

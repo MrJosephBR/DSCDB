@@ -2,6 +2,26 @@ import { prisma } from "@/lib/prisma";
 import { serializeCombinedExport } from "@/modules/export/compound-exporter";
 import type { Prisma } from "@prisma/client";
 
+const externalDatabases = [
+  "PubChem",
+  "HMDB",
+  "KEGG",
+  "CAS",
+  "ChEBI",
+  "InChIKey",
+  "InChI",
+  "SMILES",
+  "PDB",
+  "PathBank",
+  "BioCyc",
+  "PlantCyc",
+  "DrugBank",
+  "UniProt",
+  "Other"
+] as const;
+const artifactFlags = ["likely_artifact", "possible_artifact", "unlikely_artifact", "unknown"] as const;
+const confidenceLevels = ["high", "medium", "low", "unknown"] as const;
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const q = url.searchParams.get("q");
@@ -19,6 +39,10 @@ export async function GET(request: Request) {
   const hasPathway = url.searchParams.get("hasPathway");
   const hasTarget = url.searchParams.get("hasTarget");
   const hasPdb = url.searchParams.get("hasPdb");
+  const parsedIdentifierDatabase = identifierDatabase && isExternalDatabase(identifierDatabase) ? identifierDatabase : undefined;
+  const parsedArtifactFlag = artifactFlag && isArtifactFlag(artifactFlag) ? artifactFlag : undefined;
+  const parsedAnnotationConfidence =
+    annotationConfidence && isConfidenceLevel(annotationConfidence) ? annotationConfidence : undefined;
   const and: Prisma.CompoundWhereInput[] = [];
 
   if (cid && Number.isFinite(Number(cid))) {
@@ -52,7 +76,7 @@ export async function GET(request: Request) {
       externalIdentifiers: {
         some: {
           ...(identifier ? { identifier: { contains: identifier, mode: "insensitive" } } : {}),
-          ...(identifierDatabase ? { database: identifierDatabase as any } : {})
+          ...(parsedIdentifierDatabase ? { database: parsedIdentifierDatabase } : {})
         }
       }
     });
@@ -124,8 +148,8 @@ export async function GET(request: Request) {
     });
   }
 
-  if (artifactFlag) and.push({ artifactAssessments: { some: { flag: artifactFlag as any } } });
-  if (annotationConfidence) and.push({ annotationConfidence: { is: { level: annotationConfidence as any } } });
+  if (parsedArtifactFlag) and.push({ artifactAssessments: { some: { flag: parsedArtifactFlag } } });
+  if (parsedAnnotationConfidence) and.push({ annotationConfidence: { is: { level: parsedAnnotationConfidence } } });
   if (hasPathway === "true") and.push({ pathways: { some: {} } });
   if (hasPathway === "false") and.push({ pathways: { none: {} } });
   if (hasTarget === "true") and.push({ targets: { some: {} } });
@@ -225,4 +249,16 @@ export async function GET(request: Request) {
       hasPdb
     })
   );
+}
+
+function isExternalDatabase(value: string): value is (typeof externalDatabases)[number] {
+  return externalDatabases.includes(value as (typeof externalDatabases)[number]);
+}
+
+function isArtifactFlag(value: string): value is (typeof artifactFlags)[number] {
+  return artifactFlags.includes(value as (typeof artifactFlags)[number]);
+}
+
+function isConfidenceLevel(value: string): value is (typeof confidenceLevels)[number] {
+  return confidenceLevels.includes(value as (typeof confidenceLevels)[number]);
 }

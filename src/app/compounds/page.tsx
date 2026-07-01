@@ -5,6 +5,7 @@ import Badge from "@/app/ui/badge";
 import DataTable from "@/app/ui/data-table";
 import EmptyState from "@/app/ui/empty-state";
 import SectionCard from "@/app/ui/section-card";
+import { EmptyValue } from "@/app/ui/scientific-values";
 import { prisma } from "@/lib/prisma";
 
 type Props = {
@@ -204,9 +205,9 @@ export default async function CompoundsPage({ searchParams }: Props) {
                 </td>
                 <td>
                   <Link className="row-link" href={href}>
-                    <span className="primary-text">{compound.commonName ?? "Not curated"}</span>
+                    <span className="primary-text">{compound.commonName ?? `CID ${compound.pubchemCid}`}</span>
                     <br />
-                    <span className="muted">{compound.iupacName ?? "IUPAC name not curated"}</span>
+                    <span className="muted">{compound.iupacName ?? <EmptyValue />}</span>
                   </Link>
                 </td>
                 <td>
@@ -218,7 +219,7 @@ export default async function CompoundsPage({ searchParams }: Props) {
                   <Link className="row-link" href={href}>
                     <ChipList
                       items={compound.diseasePresence.map((presence) => presence.disease.name)}
-                      empty="None recorded"
+                      empty="—"
                       variant="info"
                     />
                   </Link>
@@ -227,7 +228,7 @@ export default async function CompoundsPage({ searchParams }: Props) {
                   <Link className="row-link" href={href}>
                     <ChipList
                       items={compound.relatedDiseases.map((related) => `${related.disease.name}: ${labelize(related.assertion)}`)}
-                      empty="None recorded"
+                      empty="—"
                       variant="neutral"
                     />
                   </Link>
@@ -249,7 +250,7 @@ export default async function CompoundsPage({ searchParams }: Props) {
                   <Link className="row-link" href={href}>
                     <ChipList
                       items={compound.artifactAssessments.map((assessment) => labelize(assessment.flag))}
-                      empty="None recorded"
+                      empty="—"
                       variant={artifactVariant(compound.artifactAssessments[0]?.flag)}
                     />
                   </Link>
@@ -401,12 +402,12 @@ function IdentifierChips({
     chips.push(`InChIKey: ${inchiKey}`);
   }
 
-  return <ChipList items={chips} empty="None recorded" variant="neutral" />;
+  return <ChipList items={chips} empty="—" variant="neutral" />;
 }
 
 function CountPreview({ count, names }: { count: number; names: string[] }) {
   if (count === 0) {
-    return <span className="muted">None recorded</span>;
+    return <EmptyValue />;
   }
 
   const preview = names.slice(0, 2).join(", ");

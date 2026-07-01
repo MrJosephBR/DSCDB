@@ -2,10 +2,22 @@
 
 import { useState } from "react";
 
+type PeakSummary = {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  sampleCount: number;
+  createdCompounds: number;
+  createdSamples: number;
+  createdMeasurements: number;
+  dryRun: boolean;
+  validationErrors: string[];
+};
+
 export default function PeakTableForm() {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [summary, setSummary] = useState<unknown>(null);
+  const [summary, setSummary] = useState<PeakSummary | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
   async function runImport(dryRun: boolean) {
@@ -61,7 +73,27 @@ export default function PeakTableForm() {
         </button>
       </div>
       {message ? <div className="import-alert">{message}</div> : null}
-      {summary ? <pre>{JSON.stringify(summary, null, 2)}</pre> : null}
+      {summary ? (
+        <section className="summary-grid" aria-label="Peak table import summary">
+          <div className="metric">Rows<strong>{summary.totalRows}</strong></div>
+          <div className="metric">Valid<strong>{summary.validRows}</strong></div>
+          <div className="metric">Invalid<strong>{summary.invalidRows}</strong></div>
+          <div className="metric">Samples<strong>{summary.sampleCount}</strong></div>
+          <div className="metric">Compounds<strong>{summary.createdCompounds}</strong></div>
+          <div className="metric">Measurements<strong>{summary.createdMeasurements}</strong></div>
+          <div className="metric">Mode<strong>{summary.dryRun ? "Dry" : "Saved"}</strong></div>
+          {summary.validationErrors.length > 0 ? (
+            <div className="validation-list">
+              <strong>Validation warnings</strong>
+              <ul>
+                {summary.validationErrors.map((validationError) => (
+                  <li key={validationError}>{validationError}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </section>
   );
 }

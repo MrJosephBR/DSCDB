@@ -26,9 +26,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/references", label: "References" },
       { href: "/pathways", label: "Pathways" },
-      { href: "/targets", label: "Targets / Interactions" },
-      { href: "/samples", label: "Samples" },
-      { href: "/measurements", label: "Measurements" }
+      { href: "/targets", label: "Targets / Interactions" }
     ]
   },
   {

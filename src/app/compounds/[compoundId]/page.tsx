@@ -6,6 +6,7 @@ import DataTable from "@/app/ui/data-table";
 import EmptyState from "@/app/ui/empty-state";
 import JsonViewer from "@/app/ui/json-viewer";
 import SectionCard from "@/app/ui/section-card";
+import { EmptyValue, FieldValue } from "@/app/ui/scientific-values";
 import { getCompound } from "@/modules/compounds/service";
 import CompoundSectionActions from "./ui/compound-section-actions";
 
@@ -50,7 +51,7 @@ export default async function CompoundDetailPage({ params }: Props) {
           <h1>{title}</h1>
           <p>
             PubChem CID {compound.pubchemCid}
-            {compound.iupacName ? ` · ${compound.iupacName}` : ""}
+            {compound.iupacName ? ` - ${compound.iupacName}` : ""}
           </p>
           <div className="chip-list" style={{ marginTop: 12 }}>
             {compound.diseasePresence.slice(0, 6).map((presence) => (
@@ -130,27 +131,29 @@ export default async function CompoundDetailPage({ params }: Props) {
 
 function SummaryPanel({ compound }: { compound: CompoundDetail }) {
   const identifiers = identifierMap(compound);
+  const keyIdentifierEntries: [string, React.ReactNode][] = [
+    ["PubChem CID", String(compound.pubchemCid)],
+    ["InChIKey", <FieldValue key="inchikey" kind="long">{compound.identity?.inchiKey ?? identifiers.InChIKey}</FieldValue>],
+    ["SMILES", <FieldValue key="smiles" kind="long">{compound.identity?.smiles ?? identifiers.SMILES}</FieldValue>],
+    ["HMDB", identifiers.HMDB],
+    ["KEGG", identifiers.KEGG],
+    ["CAS", identifiers.CAS],
+    ["ChEBI", identifiers.ChEBI],
+    ["DrugBank", identifiers.DrugBank],
+    ["UniProt", identifiers.UniProt],
+    ["PathBank", identifiers.PathBank],
+    ["BioCyc", identifiers.BioCyc],
+    ["PlantCyc", identifiers.PlantCyc]
+  ];
+
   return (
     <aside className="summary-panel" aria-label="Compound summary">
       <h2>Key identifiers</h2>
       <div className="key-value">
-        {[
-          ["PubChem CID", String(compound.pubchemCid)],
-          ["InChIKey", compound.identity?.inchiKey ?? identifiers.InChIKey],
-          ["SMILES", compound.identity?.smiles ?? identifiers.SMILES],
-          ["HMDB", identifiers.HMDB],
-          ["KEGG", identifiers.KEGG],
-          ["CAS", identifiers.CAS],
-          ["ChEBI", identifiers.ChEBI],
-          ["DrugBank", identifiers.DrugBank],
-          ["UniProt", identifiers.UniProt],
-          ["PathBank", identifiers.PathBank],
-          ["BioCyc", identifiers.BioCyc],
-          ["PlantCyc", identifiers.PlantCyc]
-        ].map(([label, value]) => (
+        {keyIdentifierEntries.map(([label, value]) => (
           <div className="key-value-row" key={label}>
             <dt>{label}</dt>
-            <dd>{value || "Not recorded"}</dd>
+            <dd>{isEmptyDisplay(value) ? <EmptyValue /> : value}</dd>
           </div>
         ))}
       </div>
@@ -199,11 +202,11 @@ function OverviewSection({ compound }: { compound: CompoundDetail }) {
       <DetailList
         entries={[
           ["Common name", compound.commonName ?? "Not curated"],
-          ["IUPAC", compound.iupacName ?? "Not curated"],
-          ["Molecular formula", compound.molecularFormula ?? compound.identity?.formula ?? "Not curated"],
+          ["IUPAC", <FieldValue key="iupac" kind="chemical">{compound.iupacName}</FieldValue>],
+          ["Molecular formula", <FieldValue key="formula" kind="chemical">{compound.molecularFormula ?? compound.identity?.formula}</FieldValue>],
           ["Molecular weight", formatValue(compound.molecularWeight ?? compound.identity?.molecularWeight)],
           ["Exact mass", formatValue(compound.identity?.exactMass)],
-          ["Annotation summary", compound.annotationSummary ?? "Not recorded"],
+          ["Annotation summary", humanizeStoredText(compound.annotationSummary)],
           ["Classification summary", joinOrNone(compound.classificationLinks.map((link) => link.chemicalClassification.name))],
           ["Compound types", joinOrNone(compound.typeLinks.map((link) => link.compoundType.name))]
         ]}
@@ -219,14 +222,14 @@ function ChemicalIdentitySection({ compound }: { compound: CompoundDetail }) {
         <h3>Identity</h3>
         <DetailList
           entries={[
-            ["Formula", compound.identity?.formula ?? compound.molecularFormula ?? "Not curated"],
+            ["Formula", <FieldValue key="formula" kind="chemical">{compound.identity?.formula ?? compound.molecularFormula}</FieldValue>],
             ["Exact mass", formatValue(compound.identity?.exactMass)],
             ["Molecular weight", formatValue(compound.identity?.molecularWeight ?? compound.molecularWeight)],
-            ["SMILES", compound.identity?.smiles ?? "Not recorded"],
-            ["Canonical SMILES", compound.identity?.canonicalSmiles ?? "Not recorded"],
-            ["Isomeric SMILES", compound.identity?.isomericSmiles ?? "Not recorded"],
-            ["InChI", compound.identity?.inchi ?? "Not recorded"],
-            ["InChIKey", compound.identity?.inchiKey ?? "Not recorded"]
+            ["SMILES", <FieldValue key="smiles" kind="long">{compound.identity?.smiles}</FieldValue>],
+            ["Canonical SMILES", <FieldValue key="canonical-smiles" kind="long">{compound.identity?.canonicalSmiles}</FieldValue>],
+            ["Isomeric SMILES", <FieldValue key="isomeric-smiles" kind="long">{compound.identity?.isomericSmiles}</FieldValue>],
+            ["InChI", <FieldValue key="inchi" kind="long">{compound.identity?.inchi}</FieldValue>],
+            ["InChIKey", <FieldValue key="inchikey" kind="long">{compound.identity?.inchiKey}</FieldValue>]
           ]}
         />
       </div>
@@ -437,9 +440,9 @@ function EvidenceReferencesSection({ compound }: { compound: CompoundDetail }) {
               <td>{evidence.evidenceLevel ? <Badge variant="info">{evidence.evidenceLevel}</Badge> : "Not recorded"}</td>
               <td>{evidence.source ?? evidence.sourceOrigin?.name ?? "Not recorded"}</td>
               <td>{referenceLabel(evidence.reference)}</td>
-              <td>{evidence.summary ?? "Not recorded"}</td>
+              <td>{humanizeStoredText(evidence.summary)}</td>
               <td>
-                {evidence.notes ?? "Not recorded"}
+                {humanizeStoredText(evidence.notes)}
                 {evidence.rawJson ? <JsonViewer value={evidence.rawJson} label="Evidence raw JSON" /> : null}
               </td>
             </tr>
@@ -497,7 +500,7 @@ function NotesSection({ compound }: { compound: CompoundDetail }) {
         {compound.notes.map((note) => (
           <tr key={note.compoundNoteId}>
             <td>{note.noteType ?? "curation_notes"}</td>
-            <td>{note.note}</td>
+            <td>{humanizeStoredText(note.note)}</td>
             <td>{note.createdBy ?? "Not recorded"}</td>
             <td>{formatDateTime(note.createdAt)}</td>
           </tr>
@@ -563,7 +566,7 @@ function DetailList({ entries }: { entries: [string, React.ReactNode][] }) {
       {entries.map(([label, value]) => (
         <div className="key-value-row" key={label}>
           <dt>{label}</dt>
-          <dd>{value ?? "Not recorded"}</dd>
+          <dd>{isEmptyDisplay(value) ? <EmptyValue /> : value}</dd>
         </div>
       ))}
     </dl>
@@ -592,7 +595,7 @@ function identifierMap(compound: CompoundDetail) {
 }
 
 function formatValue(value: unknown) {
-  if (value === null || value === undefined) return "Not recorded";
+  if (value === null || value === undefined) return <EmptyValue />;
   if (value instanceof Date) return formatDateTime(value);
   if (typeof value === "object" && "toString" in value) return String(value);
   return String(value);
@@ -603,13 +606,42 @@ function formatDateTime(value: Date) {
 }
 
 function referenceLabel(reference: { title?: string | null; doi?: string | null; pmid?: string | null; url?: string | null } | null) {
-  if (!reference) return "Not recorded";
+  if (!reference) return <EmptyValue />;
   return reference.title ?? reference.doi ?? reference.pmid ?? reference.url ?? "Untitled reference";
 }
 
 function joinOrNone(values: string[]) {
   const filtered = values.filter(Boolean);
-  return filtered.length ? filtered.join(", ") : "Not recorded";
+  return filtered.length ? filtered.join(", ") : <EmptyValue />;
+}
+
+function humanizeStoredText(value: string | null | undefined) {
+  if (!value) return <EmptyValue />;
+  const trimmed = value.trim();
+  const jsonStart = trimmed.indexOf("{");
+  if (jsonStart >= 0) {
+    const prefix = trimmed.slice(0, jsonStart).replace(/^\[|\]\s*$/g, "").replace(/_/g, " ").trim();
+    try {
+      const parsed = JSON.parse(trimmed.slice(jsonStart));
+      const text = collectReadableStrings(parsed).slice(0, 8).join("; ");
+      return text ? `${prefix ? `${prefix}: ` : ""}${text}` : trimmed.slice(0, jsonStart).trim();
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function collectReadableStrings(value: unknown): string[] {
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (typeof value === "number" || typeof value === "boolean") return [String(value)];
+  if (Array.isArray(value)) return value.flatMap(collectReadableStrings);
+  if (value && typeof value === "object") return Object.values(value).flatMap(collectReadableStrings);
+  return [];
+}
+
+function isEmptyDisplay(value: React.ReactNode) {
+  return value === null || value === undefined || value === "Not recorded" || value === "Not curated";
 }
 
 function labelize(value: string) {

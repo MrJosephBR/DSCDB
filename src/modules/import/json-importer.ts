@@ -148,7 +148,11 @@ export type NormalizedReference = {
 export type NormalizedEvidence = {
   evidenceType: string;
   humanEvidence: boolean;
+  biologicalContext?: string;
+  evidenceLevel?: string;
+  source?: string;
   summary?: string;
+  notes?: string;
 };
 
 export type NormalizedPathway = {
@@ -685,16 +689,24 @@ function stablePayloadHash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function normalizeUnknownBlock(label: string, value: unknown) {
+function normalizeUnknownBlock(label: string, value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
 
   if (typeof value === "string") {
-    return `[${label}] ${value}`;
+    return `${humanizeLabel(label)}: ${value.trim()}`;
   }
 
-  return `[${label}] ${JSON.stringify(value)}`;
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.map((entry) => normalizeUnknownBlock(label, entry)).filter((entry): entry is string => Boolean(entry))).join("\n");
+  }
+
+  if (isRecord(value)) {
+    return readableRecord(label, value);
+  }
+
+  return `${humanizeLabel(label)}: ${String(value)}`;
 }
 
 function normalizeNotes(compound: CuratedJsonCompound) {
@@ -841,13 +853,32 @@ function normalizeEvidence(compound: CuratedJsonCompound) {
 
   for (const [type, value] of [
     ["literature_evidence", compound.literature_evidence],
+    ["human_clinical_evidence", (compound as Record<string, unknown>).human_clinical_evidence],
     ["respiratory_relevance", compound.respiratory_relevance]
   ] as const) {
+    const records = collectRecords(value);
+    if (records.length > 0) {
+      for (const record of records) {
+        const summary = evidenceSummary(type, record);
+        if (!summary) continue;
+        evidence.push({
+          evidenceType: cleanString(record.evidence_type) ?? cleanString(record.type) ?? type,
+          biologicalContext: cleanString(record.biological_context) ?? cleanString(record.disease_context) ?? cleanString(record.context),
+          evidenceLevel: cleanString(record.confidence) ?? cleanString(record.evidence_level),
+          source: cleanString(record.source) ?? cleanString(record.database) ?? cleanString(record.title),
+          humanEvidence: recordIncludesHumanEvidence(record),
+          summary,
+          notes: cleanString(record.notes)
+        });
+      }
+      continue;
+    }
+
     const summary = normalizeUnknownBlock(type, value);
     if (summary) {
       evidence.push({
         evidenceType: type,
-        humanEvidence: JSON.stringify(value ?? "").toLowerCase().includes("human"),
+        humanEvidence: readableText(value).toLowerCase().includes("human"),
         summary
       });
     }
@@ -989,6 +1020,70 @@ function collectRecords(value: unknown): Array<Record<string, unknown>> {
   }
 
   return [];
+}
+
+function readableRecord(label: string, record: Record<string, unknown>) {
+  const preferredFields = [
+    ["Title", record.title ?? record.name],
+    ["Source", record.source ?? record.database ?? record.resource],
+    ["Type", record.type ?? record.evidence_type],
+    ["Disease context", record.disease_context ?? record.disease ?? record.context],
+    ["Mechanism", record.mechanism],
+    ["Key finding", record.key_finding ?? record.finding ?? record.summary],
+    ["Content", record.content ?? record.note ?? record.notes ?? record.description],
+    ["Confidence", record.confidence ?? record.evidence_level],
+    ["URL", record.url ?? record.link],
+    ["DOI", record.doi],
+    ["PMID", record.pmid ?? record.pubmed_id]
+  ] as const;
+  const lines: [string, string][] = [];
+  for (const [field, value] of preferredFields) {
+    const readable = readableScalar(value);
+    if (readable) {
+      lines.push([field, readable]);
+    }
+  }
+
+  if (lines.length > 0) {
+    return [`${humanizeLabel(label)}:`, ...lines.map(([field, value]) => `${field}: ${value}`)].join("\n");
+  }
+
+  const fallback = uniqueStrings(collectStrings(record)).slice(0, 8).join("; ");
+  return fallback ? `${humanizeLabel(label)}: ${fallback}` : undefined;
+}
+
+function evidenceSummary(label: string, record: Record<string, unknown>) {
+  return readableRecord(label, record);
+}
+
+function readableScalar(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() || undefined;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.map(readableScalar).filter((item): item is string => Boolean(item))).join("; ") || undefined;
+  }
+  if (isRecord(value)) {
+    const text = uniqueStrings(collectStrings(value)).slice(0, 6).join("; ");
+    return text || undefined;
+  }
+  return undefined;
+}
+
+function readableText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(readableText).join(" ");
+  if (isRecord(value)) return Object.values(value).map(readableText).join(" ");
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function recordIncludesHumanEvidence(record: Record<string, unknown>) {
+  const text = readableText(record).toLowerCase();
+  return text.includes("human") || text.includes("clinical") || text.includes("patient") || text.includes("patients");
+}
+
+function humanizeLabel(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function collectStrings(value: unknown): string[] {
@@ -1250,8 +1345,12 @@ async function createEvidenceIfMissing(db: Db, compoundId: string, evidence: Nor
         compoundId,
         sourceOriginId,
         evidenceType: evidence.evidenceType,
+        biologicalContext: evidence.biologicalContext,
+        evidenceLevel: evidence.evidenceLevel,
+        source: evidence.source,
         humanEvidence: evidence.humanEvidence,
-        summary: evidence.summary
+        summary: evidence.summary,
+        notes: evidence.notes
       }
     });
   }

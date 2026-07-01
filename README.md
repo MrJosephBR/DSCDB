@@ -1,24 +1,56 @@
-# VOCs Breathomics DB
+# DSCDB
 
-Research, scientific curation, and knowledge-management platform for volatile organic compounds (VOCs) in public or anonymized breathomics datasets.
+DSCDB is a research console for scientific curation and consultation of volatile organic compounds (VOCs) in public or anonymized GC-MS breathomics datasets. It is designed for compound identity, dataset presence, evidence, diseases, pathways, targets, references, auditability, and repeatable local imports.
 
-The v1 scope is not clinical diagnosis. A compound detected in a disease dataset is stored as dataset presence only; it is not treated as causal, diagnostic, or a confirmed biomarker.
+DSCDB is not a clinical diagnostic tool. A compound observed in an asthma, bronchiectasis, COPD, or other disease dataset is stored as dataset presence only; it is not a causal, diagnostic, or confirmed biomarker claim.
 
 ## Stack
 
-- Node.js, TypeScript, Next.js
+- Next.js, React, TypeScript
 - Prisma ORM
 - PostgreSQL
 - Docker Compose
+- Zod validation for curated JSON import
+- Vitest for importer/domain tests
 
-## Quick Start
+## Project Structure
+
+- `src/app`: Next.js routes, UI, API endpoints
+- `src/modules`: domain services, auth, importers, exporters, audit
+- `prisma/schema.prisma`: database model
+- `prisma/migrations`: deployable database migrations
+- `prisma/seed.ts`: clean local seed for source origins, vocabularies, and demo admin user
+- `docs`: technical documentation for data model, imports, Docker, curation, and troubleshooting
+
+## Environment Variables
+
+Use `.env.example` as the committed template:
+
+```bash
+cp .env.example .env
+```
+
+Do not commit `.env`. The repo intentionally ignores `.env` and `.env*.local`.
+
+Important variables:
+
+- `DATABASE_URL`: PostgreSQL connection string
+- `JWT_SECRET`: replace the demo value before sharing any deployed instance
+- `APP_URL`: local or deployed app URL
+- `UPLOAD_DIR`: app-container upload directory
+- `MAX_UPLOAD_SIZE_MB`: upload limit
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`: Docker database bootstrap values
+
+There is no `example.env` standard in this project; use `.env.example`.
+
+## Local Docker Run
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-The app container runs Prisma migrations and seed automatically on start. The web app is exposed at:
+Open:
 
 ```text
 http://localhost:3000
@@ -27,41 +59,104 @@ http://localhost:3000
 Health check:
 
 ```text
-GET /api/health
+http://localhost:3000/api/health
 ```
 
-Seed credentials for local development:
+The app container runs migrations and seed during startup through the Docker entrypoint.
+
+## Local Run Without Docker
+
+Use a PostgreSQL database reachable from the host and set:
+
+```env
+DATABASE_URL="postgresql://voc_user:voc_password@localhost:5432/vocs_db"
+```
+
+Then run:
+
+```bash
+npm install
+npm run prisma:generate
+npm run prisma:dev
+npm run db:seed
+npm run dev
+```
+
+## Migrations And Seed
+
+Deploy migrations:
+
+```bash
+npm run prisma:migrate
+```
+
+Seed local reference data:
+
+```bash
+npm run db:seed
+```
+
+Reset a non-Docker local database managed by Prisma:
+
+```bash
+npm run db:reset
+```
+
+`prisma/seed.ts` currently creates source origins, chemical vocabularies, compound types, and one local admin user. It does not create hidden compound demo data. If demo compounds are needed, place them in `prisma/demo-data` and import them explicitly from the seed.
+
+## Clean Docker Reset
+
+Use this when you need to prove whether visible compounds came from old Postgres volumes, previous imports, seeds, or hardcoded UI data:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+docker compose exec app npx prisma migrate deploy
+docker compose exec app npx prisma db seed
+```
+
+After `docker compose down -v`, all Postgres volume data is removed. With the current seed, the app should start with reference data and the demo admin user, but no compounds unless you import them.
+
+## Demo Credentials
+
+Local seed user:
 
 ```text
 email: admin@example.local
 password: change-me
 ```
 
-Login writes the `dscdb_session` HTTP-only cookie.
+Change this password and `JWT_SECRET` before sharing a deployed instance.
+
+## Data Origin Checklist
+
+When compounds appear after startup, check in this order:
+
+1. Prisma seed: `prisma/seed.ts`
+2. Persistent Docker/Postgres volume data from earlier imports
+3. Import jobs in `/imports`
+4. Source payloads linked to compounds
+5. Hardcoded UI data
+
+At the time of this revision, compound pages query the database and no compound list/detail data is hardcoded in React components.
 
 ## Curated JSON Import
 
-Open the import screen:
-
-```text
-http://localhost:3000/imports
-```
-
-Or post a `.json` file as multipart form data:
+Use `/imports` or:
 
 ```text
 POST /api/import/compounds-json
-form field: file
+multipart form field: file
 ```
 
-Dry-run before writing:
+Dry run:
 
 ```text
 POST /api/import/compounds-json?dryRun=1
-form fields: file, dryRun=true
+multipart form fields: file, dryRun=true
 ```
 
-The first importer supports files shaped like:
+Expected top-level shape:
 
 ```json
 {
@@ -77,24 +172,46 @@ The first importer supports files shaped like:
         "hmdb_id": "HMDB0000001",
         "kegg_id": "C01513"
       },
-      "database_notes": [],
+      "database_notes": ["Curated manually"],
+      "literature_evidence": [
+        {
+          "mechanism": "oxidative stress context",
+          "disease_context": "asthma",
+          "evidence_type": "literature",
+          "key_finding": "reported in respiratory VOC literature",
+          "source": "manual curation",
+          "confidence": "medium"
+        }
+      ],
       "peaktable_presence": {
         "asthma": 1,
         "bronchiectasis": 0,
-        "COPD": 0
+        "copd": 0
       }
     }
   ]
 }
 ```
 
-The importer upserts compound identity fields, external identifiers, ClassyFire-style classifications, compound types, references, evidence records, pathways, targets, related diseases with sources, artifact assessments, annotation confidence, raw source payloads, database notes, respiratory relevance notes, and cautious nonzero peaktable presence records. Zero values are not imported as absence. Presence rows are dataset observations only and are not treated as diagnosis, causality, or confirmed biomarker claims.
+The importer normalizes compound identity, names/synonyms, external identifiers, classifications, compound types, artifact assessment, annotation confidence, dataset presence, disease associations, evidence records, references, pathways, targets/interactions, PDB structures, and source payloads. Raw original compound JSON is stored in `source_payloads` for audit. Notes and evidence summaries are converted to readable text instead of storing raw JSON strings as visible content.
 
-The full original compound object is preserved in `source_payloads`. Unknown or partially mapped blocks such as PDB structures, SIMCOMP/similarity, nested pathway data, miscellaneous database notes, and viewer-specific fields are never discarded.
+## Peak Table CSV/XLSX Import
 
-## Peak Table Import
+Use `/imports` or:
 
-The first peak-table importer supports CSV files with one PubChem CID column and sample columns:
+```text
+POST /api/import/peak-table
+multipart form fields: file, datasetTitle, diseaseName
+```
+
+Supported files:
+
+- `Asthma_peaktable_ver3.csv`
+- `Bronchi_peaktable_ver3.csv`
+- `COPD_peaktable_ver3.csv`
+- `.xlsx` worksheets with the same table shape
+
+Expected table:
 
 ```csv
 pubchem_cid,SAMPLE_001,SAMPLE_002
@@ -102,174 +219,80 @@ pubchem_cid,SAMPLE_001,SAMPLE_002
 702,0,55.2
 ```
 
-Use `/imports` or:
+The importer creates or updates dataset, disease, source file, samples, compounds by PubChem CID, measurements, and aggregated `compound_disease_presence`.
 
-```text
-POST /api/import/peak-table?dryRun=1
-form fields: file, datasetTitle, diseaseName, dryRun
-```
+Metadata workbooks such as `CBD_metadata_for_ver3.xlsx` and `Intersection_of_detected_compounds.xlsx` are documented in `docs/import-peak-tables.md`; dedicated metadata mapping can be extended there without changing the core measurement importer.
 
-The importer creates datasets, dataset files, diseases, samples, compounds by PubChem CID, measurements, and aggregated `compound_disease_presence`. Presence remains a dataset observation only.
+## Main Entities
 
-## Main Pages
+- `Compound`: unique by `pubchem_cid`
+- `CompoundIdentity`: formula, mass, InChI, SMILES
+- `ExternalIdentifier`: database-specific IDs
+- `Dataset`, `Sample`, `CompoundMeasurement`: GC-MS dataset observations
+- `CompoundDiseasePresence`: aggregated dataset presence by disease and dataset
+- `CompoundRelatedDisease`: literature/database disease associations, separate from dataset presence
+- `EvidenceRecord`: structured evidence summaries
+- `Reference`: DOI/PMID/URL/citation metadata
+- `Pathway`, `Target`, `PdbStructure`: knowledge links
+- `SourcePayload`: original import payload for traceability
+- `ImportJob`: import status, summary, errors/warnings
+- `AuditLog`: curation actions
 
-- `/compounds` searchable compound table
-- `/compounds/[compoundId]` compound detail
-- `/compounds/new` create compound
-- `/datasets` datasets and disease cohorts
-- `/diseases` diseases and linked compounds
-- `/imports` JSON upload, dry-run, summary, and job history
-- `/duplicates` duplicate review queue
-- `/audit` audit log
-- `/users` admin-only user management
-- `/login` local development login
+## Curation Flow
 
-## API Routes
+1. Import curated JSON or peak tables through `/imports`.
+2. Review import summary and warnings.
+3. Search compounds in `/compounds`.
+4. Open a compound detail page and inspect source payloads only when auditing.
+5. Curate evidence, disease links, pathways, targets, notes, and artifact status.
+6. Review duplicates in `/duplicates`.
+7. Export filtered JSON from `/compounds` or `/api/export/combined`.
 
-- `GET /api/compounds`
-- `POST /api/compounds`
-- `GET /api/compounds/[id]`
-- `PATCH /api/compounds/[id]`
-- `DELETE /api/compounds/[id]`
-- `GET /api/datasets`
-- `GET /api/diseases`
-- `GET /api/imports`
-- `POST /api/import/compounds-json`
-- `POST /api/import/peak-table`
-- `GET /api/audit`
-- `GET /api/duplicates`
-- `PATCH /api/duplicates/[id]`
-- `GET /api/auth/me`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/users`
-- `POST /api/users`
-- `PATCH /api/users/[id]`
-- `DELETE /api/users/[id]`
-- `GET /api/export/combined`
+## Permissions
 
-Write routes require login as `editor`, `curator`, or `admin`. Duplicate review updates require `curator` or `admin`.
-User management requires `admin`.
+Read routes are available to the app UI. Write actions require login:
 
-Combined export supports filters:
+- compound create/update/delete: `admin`, `curator`, `editor`
+- imports: `admin`, `curator`, `editor`
+- duplicate review updates: `admin`, `curator`
+- user management: `admin`
 
-```text
-/api/export/combined?disease=Asthma&dataset=Curated&cidMin=100&cidMax=999&artifactFlag=unknown
-```
-
-## Development
+## Useful Commands
 
 ```bash
-npm install
-npm run prisma:generate
-npm run prisma:dev
-npm run prisma:seed
 npm run dev
-```
-
-When running outside Docker, use a localhost database URL:
-
-```env
-DATABASE_URL="postgresql://voc_user:voc_password@localhost:5432/vocs_db"
-```
-
-## Tests
-
-```bash
+npm run build
+npm run lint
 npm test
+npm run prisma:generate
+npm run prisma:migrate
+npm run db:seed
+npm run db:reset
+npx prisma validate
 ```
 
-Initial tests cover:
-
-- PubChem CID uniqueness rule
-- compound creation contract
-- soft delete behavior
-- disease presence without causality or biomarker assertion
-- related disease source requirement
-- JSON export separation between `dataset_presence` and `related_diseases`
-- Curated JSON import with richer viewer fields
-- Peak table CSV parsing, invalid CIDs, and duplicate CIDs
-
-## Data Model Rules
-
-- `pubchem_cid` is required and unique for every compound.
-- `compound_id` UUID is the technical primary key and relationship target.
-- Diseases are modeled through `datasets`, `diseases`, and `compound_disease_presence`.
-- New diseases and datasets do not require schema changes.
-- Related diseases are separate from dataset presence.
-- Original and secondary sources are stored for related disease assertions.
-- JSONB is reserved for original payload backup and unmapped source data.
-- Edits are written to `audit_logs`.
-- Deletes are logical via `deleted_at`.
-- Duplicate candidates are reviewed, not merged automatically.
-
-## Docker
-
-Local build and run:
+Docker:
 
 ```bash
 docker compose up -d --build
 docker compose ps
+docker compose logs -f app
+docker compose down -v
 ```
 
-Expected local URLs:
+## Troubleshooting
 
-```text
-App: http://localhost:3000
-Health: http://localhost:3000/api/health
-```
+- Compounds remain after reset: confirm you ran `docker compose down -v`, not only `down`.
+- Login fails after reset: reseed with `docker compose exec app npx prisma db seed`.
+- JSON appears in visible notes: old imported records may still contain serialized text; reimport after this revision or clean the affected notes.
+- Import fails on CID: every compound row requires a positive PubChem CID.
+- Docker app cannot connect to DB: inside Compose, `DATABASE_URL` must use host `db`.
 
-The default Compose profile starts PostgreSQL 16 and the Next.js app. PostgreSQL is internal to Docker and is not published to the host. For production reverse proxy with Caddy:
+## Roadmap
 
-```bash
-docker compose --profile production up -d --build
-```
-
-## Oracle VPS
-
-On the VPS:
-
-```bash
-git clone <repo-url> vocs-db
-cd vocs-db
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-APP_ENV="production"
-APP_URL="https://your-domain.example.com"
-APP_DOMAIN="your-domain.example.com"
-JWT_SECRET="replace_with_a_long_random_secret"
-DATABASE_URL="postgresql://voc_user:strong_password@db:5432/vocs_db"
-POSTGRES_PASSWORD="strong_password"
-```
-
-Then run:
-
-```bash
-docker compose --profile production up -d --build
-```
-
-Open only ports `80` and `443` publicly. Do not expose PostgreSQL.
-
-## Backup And Restore
-
-Run backups with:
-
-```bash
-BACKUP_DIR=/srv/vocs-backups ./scripts/backup.sh
-```
-
-Restore database example:
-
-```bash
-docker exec -i voc-db psql -U voc_user -d vocs_db < /srv/vocs-backups/vocs_db_YYYYMMDD_HHMMSS.sql
-```
-
-Restore uploads example:
-
-```bash
-docker run --rm -v dscdb_uploads:/uploads -v /srv/vocs-backups:/backups alpine sh -c "cd /uploads && tar -xzf /backups/uploads_YYYYMMDD_HHMMSS.tar.gz"
-```
+- Rich metadata mapping for `CBD_metadata_for_ver3.xlsx`
+- Intersection workbook importer
+- Pagination controls beyond the current record limit
+- More granular import warning counts
+- Dedicated SourcePayload audit filters
+- Optional sidebar collapse control

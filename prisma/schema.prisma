@@ -200,7 +200,9 @@ model Compound {
   duplicateReviewTarget DuplicateReview[] @relation("DuplicateTarget")
   auditLogs             AuditLog[]
 
+  @@index([preferredName])
   @@index([commonName])
+  @@index([iupacName])
   @@map("compounds")
 }
 
@@ -378,6 +380,7 @@ model Dataset {
   presence     CompoundDiseasePresence[]
   samples      Sample[]
 
+  @@index([title])
   @@index([analyticalPlatform])
   @@map("datasets")
 }
@@ -604,6 +607,7 @@ model AnnotationConfidence {
 
   compound Compound @relation(fields: [compoundId], references: [compoundId])
 
+  @@index([level])
   @@map("annotation_confidence")
 }
 
@@ -621,6 +625,7 @@ model ArtifactAssessment {
 
   compound Compound @relation(fields: [compoundId], references: [compoundId])
 
+  @@index([flag])
   @@map("artifact_assessments")
 }
 
@@ -641,6 +646,8 @@ model Pathway {
   compounds CompoundPathway[]
 
   @@unique([name, pathwayType, source])
+  @@index([externalId])
+  @@index([pathwayExternalId])
   @@map("pathways")
 }
 
@@ -679,6 +686,8 @@ model Target {
   compounds CompoundTarget[]
 
   @@unique([name, organism])
+  @@index([geneSymbol])
+  @@index([uniprotId])
   @@map("targets")
 }
 

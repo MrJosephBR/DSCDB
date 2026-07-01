@@ -1,0 +1,9 @@
+CREATE INDEX IF NOT EXISTS "compounds_preferred_name_idx" ON "compounds"("preferred_name");
+CREATE INDEX IF NOT EXISTS "compounds_iupac_name_idx" ON "compounds"("iupac_name");
+CREATE INDEX IF NOT EXISTS "datasets_title_idx" ON "datasets"("title");
+CREATE INDEX IF NOT EXISTS "annotation_confidence_level_idx" ON "annotation_confidence"("level");
+CREATE INDEX IF NOT EXISTS "artifact_assessments_flag_idx" ON "artifact_assessments"("flag");
+CREATE INDEX IF NOT EXISTS "pathways_external_id_idx" ON "pathways"("external_id");
+CREATE INDEX IF NOT EXISTS "pathways_pathway_external_id_idx" ON "pathways"("pathway_external_id");
+CREATE INDEX IF NOT EXISTS "targets_gene_symbol_idx" ON "targets"("gene_symbol");
+CREATE INDEX IF NOT EXISTS "targets_uniprot_id_idx" ON "targets"("uniprot_id");

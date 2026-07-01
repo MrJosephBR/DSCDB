@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function ReferencesPage() {
           <h1>References</h1>
           <p>Bibliography and external literature records.</p>
         </div>
-        <a className="button secondary" href="/">Dashboard</a>
+        <Link className="button secondary" href="/">Dashboard</Link>
       </section>
       <table className="table">
         <thead><tr><th>Title</th><th>Year</th><th>DOI</th><th>PMID</th><th>URL</th></tr></thead>

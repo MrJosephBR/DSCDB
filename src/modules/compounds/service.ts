@@ -5,16 +5,26 @@ import type { CompoundSection, CreateCompoundInput, UpdateCompoundInput } from "
 
 const compoundInclude = {
   identity: true,
-  names: true,
-  externalIdentifiers: true,
+  names: {
+    include: {
+      sourceOrigin: true
+    }
+  },
+  externalIdentifiers: {
+    include: {
+      sourceOrigin: true
+    }
+  },
   classificationLinks: {
     include: {
-      chemicalClassification: true
+      chemicalClassification: true,
+      sourceOrigin: true
     }
   },
   typeLinks: {
     include: {
-      compoundType: true
+      compoundType: true,
+      sourceOrigin: true
     }
   },
   diseasePresence: {
@@ -79,6 +89,14 @@ const compoundInclude = {
     }
   },
   auditLogs: {
+    include: {
+      user: {
+        select: {
+          email: true,
+          role: true
+        }
+      }
+    },
     orderBy: {
       createdAt: "desc"
     },

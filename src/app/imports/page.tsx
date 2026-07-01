@@ -63,6 +63,7 @@ function ImportSummary({ summary }: { summary: unknown }) {
 
   const data = summary as Record<string, unknown>;
   const fields: [string, string][] = [
+    ["format", displayScalar(data.detected_format)],
     ["total", displayScalar(data.total ?? data.totalRows ?? data.totalCompounds)],
     ["valid", displayScalar(data.valid ?? data.validRows)],
     ["created", displayScalar(data.created ?? data.createdCompounds)],

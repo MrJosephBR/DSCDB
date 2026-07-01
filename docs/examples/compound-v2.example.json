@@ -1,0 +1,148 @@
+{
+  "schema_version": "DSCDB_COMPOUND_V2",
+  "compounds": [
+    {
+      "identity": {
+        "pubchem_cid": 460,
+        "common_name": "Guaiacol",
+        "iupac_name": "2-methoxyphenol",
+        "molecular_formula": "C7H8O2",
+        "molecular_weight": 124.14,
+        "inchikey": "LHGVFZTZFXWLCP-UHFFFAOYSA-N",
+        "smiles": "COC1=CC=CC=C1O"
+      },
+      "names": [
+        {
+          "name": "Guaiacol",
+          "name_type": "common"
+        },
+        {
+          "name": "2-methoxyphenol",
+          "name_type": "iupac"
+        }
+      ],
+      "external_identifiers": [
+        {
+          "database": "PubChem",
+          "identifier": "460",
+          "url": "https://pubchem.ncbi.nlm.nih.gov/compound/460"
+        },
+        {
+          "database": "HMDB",
+          "identifier": "HMDB0000001"
+        },
+        {
+          "database": "KEGG",
+          "identifier": "C01513"
+        }
+      ],
+      "classifications": [
+        {
+          "name": "Methoxyphenols",
+          "vocabulary": "ClassyFire:class"
+        }
+      ],
+      "compound_types": [
+        {
+          "name": "endogenous"
+        }
+      ],
+      "dataset_presence": [
+        {
+          "dataset_title": "Legacy curated JSON import",
+          "disease_name": "Asthma",
+          "observed": true,
+          "evidence_level": "reported",
+          "presence_value_raw": "1",
+          "notes": "Dataset observation only; not diagnostic, causal, or a confirmed biomarker assertion."
+        }
+      ],
+      "related_diseases": [
+        {
+          "disease_name": "Asthma",
+          "assertion": "reported",
+          "sources": [
+            {
+              "name": "manual curation",
+              "kind": "manual_curation",
+              "role": "secondary"
+            }
+          ],
+          "notes": "Literature/database association; not dataset presence."
+        }
+      ],
+      "pathways": [
+        {
+          "name": "Phenol metabolism",
+          "database": "KEGG",
+          "pathway_type": "metabolic",
+          "external_id": "map00350",
+          "source": "KEGG",
+          "biological_context": "human",
+          "role": "pathway"
+        }
+      ],
+      "targets": [
+        {
+          "name": "Cytochrome P450 2E1",
+          "gene_symbol": "CYP2E1",
+          "uniprot_id": "P05181",
+          "organism": "Homo sapiens",
+          "is_human": true,
+          "interaction_type": "metabolism",
+          "directness": "unknown",
+          "source": "manual curation",
+          "notes": "Evidence context: curated target interaction."
+        }
+      ],
+      "pdb_structures": [
+        {
+          "pdb_id": "1E9X",
+          "title": "Example human protein structure",
+          "method": "X-ray diffraction",
+          "resolution": 2.1,
+          "organism": "Homo sapiens",
+          "url": "https://www.rcsb.org/structure/1E9X",
+          "source": "PDB"
+        }
+      ],
+      "evidence_records": [
+        {
+          "evidence_type": "respiratory_interpretation",
+          "biological_context": "Asthma",
+          "human_evidence": true,
+          "evidence_level": "medium",
+          "source": "manual curation",
+          "summary": "Reported in respiratory VOC literature.",
+          "notes": "Interpretation only; not a causal, diagnostic, or validated biomarker claim."
+        }
+      ],
+      "references": [
+        {
+          "title": "Example respiratory VOC study",
+          "pmid": "00000000",
+          "url": "https://example.org/study",
+          "year": 2024,
+          "context": "evidence"
+        }
+      ],
+      "artifact_assessment": {
+        "flag": "possible_artifact",
+        "confidence": "medium",
+        "rationale": "Could reflect endogenous and environmental sources."
+      },
+      "annotation_confidence": {
+        "level": "medium",
+        "method": "manual curation",
+        "rationale": "Identifiers and literature evidence cross-checked."
+      },
+      "curator_notes": [
+        {
+          "note_type": "classification",
+          "note": "KEGG BRITE classification preserved as structured classification."
+        }
+      ],
+      "source_payloads": []
+    }
+  ]
+}

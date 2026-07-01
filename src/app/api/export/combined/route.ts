@@ -39,6 +39,7 @@ export async function GET(request: Request) {
   const hasPathway = url.searchParams.get("hasPathway");
   const hasTarget = url.searchParams.get("hasTarget");
   const hasPdb = url.searchParams.get("hasPdb");
+  const format = url.searchParams.get("format") === "legacy" ? "legacy" : "v2";
   const parsedIdentifierDatabase = identifierDatabase && isExternalDatabase(identifierDatabase) ? identifierDatabase : undefined;
   const parsedArtifactFlag = artifactFlag && isArtifactFlag(artifactFlag) ? artifactFlag : undefined;
   const parsedAnnotationConfidence =
@@ -230,8 +231,7 @@ export async function GET(request: Request) {
     }
   });
 
-  return Response.json(
-    serializeCombinedExport(compounds, {
+  const filters = {
       disease,
       dataset,
       cidMin,
@@ -247,8 +247,9 @@ export async function GET(request: Request) {
       hasPathway,
       hasTarget,
       hasPdb
-    })
-  );
+    };
+
+  return Response.json(format === "legacy" ? serializeCombinedExport(compounds, filters, "legacy") : serializeCombinedExport(compounds, filters));
 }
 
 function isExternalDatabase(value: string): value is (typeof externalDatabases)[number] {

@@ -140,12 +140,24 @@ When compounds appear after startup, check in this order:
 
 At the time of this revision, compound pages query the database and no compound list/detail data is hardcoded in React components.
 
-## Curated JSON Import
+## Compound JSON Import
 
 Use `/imports` or:
 
 ```text
 POST /api/import/compounds-json
+multipart form field: file
+```
+
+This endpoint autodetects:
+
+- Legacy DSCDB JSON v1: old viewer files with `compounds[].identifiers`, `interactions`, `reactions_pathways`, and related legacy sections.
+- DSCDB JSON v2: official normalized format with `schema_version = "DSCDB_COMPOUND_V2"`.
+
+Force legacy v1 when needed:
+
+```text
+POST /api/import/legacy-compounds-json
 multipart form field: file
 ```
 
@@ -156,44 +168,39 @@ POST /api/import/compounds-json?dryRun=1
 multipart form fields: file, dryRun=true
 ```
 
-Expected top-level shape:
+Official v2 top-level shape:
 
 ```json
 {
+  "schema_version": "DSCDB_COMPOUND_V2",
   "compounds": [
     {
-      "identifiers": {
-        "pubchem_cid": "460",
-        "common_name": "Guaiacol",
-        "iupac_name": "2-methoxyphenol",
-        "formula": "C7H8O2",
-        "inchikey": "LHGVFZTZFXWLCP-UHFFFAOYSA-N",
-        "smiles": "COC1=CC=CC=C1O",
-        "hmdb_id": "HMDB0000001",
-        "kegg_id": "C01513"
-      },
-      "database_notes": ["Curated manually"],
-      "literature_evidence": [
-        {
-          "mechanism": "oxidative stress context",
-          "disease_context": "asthma",
-          "evidence_type": "literature",
-          "key_finding": "reported in respiratory VOC literature",
-          "source": "manual curation",
-          "confidence": "medium"
-        }
-      ],
-      "peaktable_presence": {
-        "asthma": 1,
-        "bronchiectasis": 0,
-        "copd": 0
-      }
+      "identity": {},
+      "names": [],
+      "external_identifiers": [],
+      "classifications": [],
+      "compound_types": [],
+      "dataset_presence": [],
+      "related_diseases": [],
+      "pathways": [],
+      "targets": [],
+      "pdb_structures": [],
+      "evidence_records": [],
+      "references": [],
+      "artifact_assessment": {},
+      "annotation_confidence": {},
+      "curator_notes": [],
+      "source_payloads": []
     }
   ]
 }
 ```
 
-The importer normalizes compound identity, names/synonyms, external identifiers, classifications, compound types, artifact assessment, annotation confidence, dataset presence, disease associations, evidence records, references, pathways, targets/interactions, PDB structures, and source payloads. Raw original compound JSON is stored in `source_payloads` for audit. Notes and evidence summaries are converted to readable text instead of storing raw JSON strings as visible content.
+The legacy normalizer preserves identifiers, classifications, disease associations, pathways/reactions/enzymes, targets/interactions, PDB structures, literature evidence, respiratory relevance, artifact assessment, notes, peaktable presence, and the original compound payload.
+
+Import summaries include `detected_format`, entity counts, warnings, and errors. Raw original compound JSON is stored in `source_payloads` for audit. Notes and evidence summaries are converted to readable text instead of storing raw JSON strings as visible content.
+
+More details: `docs/import-json.md`, `docs/blueprint-json-v2.md`, and `docs/examples/compound-v2.example.json`.
 
 ## Peak Table CSV/XLSX Import
 
@@ -246,7 +253,7 @@ Metadata workbooks such as `CBD_metadata_for_ver3.xlsx` and `Intersection_of_det
 4. Open a compound detail page and inspect source payloads only when auditing.
 5. Curate evidence, disease links, pathways, targets, notes, and artifact status.
 6. Review duplicates in `/duplicates`.
-7. Export filtered JSON from `/compounds` or `/api/export/combined`.
+7. Export filtered JSON from `/compounds` or `/api/export/combined`; v2 is the default, and `?format=legacy` is available for viewer compatibility.
 
 ## Permissions
 

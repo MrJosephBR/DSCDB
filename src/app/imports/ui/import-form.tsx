@@ -14,6 +14,12 @@ type ImportSummary = {
   createdCompounds: number;
   updatedCompounds: number;
   skippedCompounds: number;
+  detected_format: string;
+  pathways_created: number;
+  targets_created: number;
+  pdb_structures_created: number;
+  evidence_records_created: number;
+  source_payloads_created: number;
   validationErrors: Array<{ index: number; pubchemCid?: number; message: string }>;
 };
 
@@ -124,6 +130,30 @@ export default function ImportForm() {
           <div className="metric">
             Mode
             <strong>{summary.dryRun ? "Dry" : "Saved"}</strong>
+          </div>
+          <div className="metric">
+            Format
+            <strong>{summary.detected_format}</strong>
+          </div>
+          <div className="metric">
+            Pathways
+            <strong>{summary.pathways_created}</strong>
+          </div>
+          <div className="metric">
+            Targets
+            <strong>{summary.targets_created}</strong>
+          </div>
+          <div className="metric">
+            PDB
+            <strong>{summary.pdb_structures_created}</strong>
+          </div>
+          <div className="metric">
+            Evidence
+            <strong>{summary.evidence_records_created}</strong>
+          </div>
+          <div className="metric">
+            Payloads
+            <strong>{summary.source_payloads_created}</strong>
           </div>
           {summary.validationErrors.length > 0 ? (
             <div className="validation-list">

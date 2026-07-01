@@ -1,6 +1,13 @@
 import { createHash } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
+import {
+  detectDscdbJsonFormat,
+  normalizeDscdbJsonPayload,
+  type DscdbJsonFormat,
+  type NormalizedCompoundV2Dto,
+  type NormalizedExternalIdentifierDto
+} from "./legacy-json-normalizer";
 
 const presenceDiseaseMap = {
   asthma: "Asthma",
@@ -111,8 +118,11 @@ export type CuratedCompoundImportItem = {
   drugbankId?: string;
   uniprotId?: string;
   names: string[];
-  raw: CuratedJsonCompound;
+  externalIdentifiers: NormalizedExternalIdentifierDto[];
+  raw: unknown;
   rawHash: string;
+  sourceName: string;
+  sourcePayloadType: string;
   notes: string[];
   artifactNote?: string;
   artifactFlag: "likely_artifact" | "possible_artifact" | "unlikely_artifact" | "unknown";
@@ -133,6 +143,10 @@ export type CuratedCompoundImportItem = {
     key: PresenceKey;
     diseaseName: string;
     value: number;
+    datasetTitle?: string;
+    evidenceLevel?: "detected" | "reported" | "curated" | "uncertain";
+    observed?: boolean;
+    notes?: string;
   }>;
 };
 
@@ -153,20 +167,40 @@ export type NormalizedEvidence = {
   source?: string;
   summary?: string;
   notes?: string;
+  species?: string;
 };
 
 export type NormalizedPathway = {
   name: string;
+  database?: string;
   pathwayType: "metabolic" | "signaling" | "disease" | "exposure" | "other";
+  pathwayExternalId?: string;
   externalId?: string;
   source?: string;
+  url?: string;
+  organism?: string;
+  taxonId?: string;
+  biologicalContext?: "human" | "conserved" | "microbial" | "plant" | "non_human" | "environmental" | "unknown";
+  role?: string;
+  evidenceLevel?: string;
+  notes?: string;
 };
 
 export type NormalizedTarget = {
   name: string;
+  geneSymbol?: string;
+  uniprotId?: string;
   organism?: string;
+  taxonId?: string;
+  isHuman?: boolean;
+  targetType?: string;
+  description?: string;
   externalId?: string;
+  interactionType?: string;
   directness: "direct" | "indirect" | "predicted" | "unknown";
+  evidenceLevel?: string;
+  source?: string;
+  notes?: string;
 };
 
 export type NormalizedPdbStructure = {
@@ -192,6 +226,7 @@ export type NormalizedRelatedDisease = {
 };
 
 export type CuratedCompoundImportPlan = {
+  detectedFormat: DscdbJsonFormat;
   totalCompounds: number;
   validCompounds: number;
   invalidCompounds: number;
@@ -212,6 +247,23 @@ export type CuratedCompoundImportSummary = {
   createdCompounds: number;
   updatedCompounds: number;
   skippedCompounds: number;
+  detected_format: DscdbJsonFormat;
+  compounds_created: number;
+  compounds_updated: number;
+  identifiers_created: number;
+  names_created: number;
+  classifications_created: number;
+  dataset_presence_created: number;
+  related_diseases_created: number;
+  pathways_created: number;
+  targets_created: number;
+  pdb_structures_created: number;
+  evidence_records_created: number;
+  references_created: number;
+  notes_created: number;
+  source_payloads_created: number;
+  warnings: ValidationError[];
+  errors: ValidationError[];
 };
 
 export function validateCompoundJsonImport(payload: unknown) {
@@ -236,85 +288,179 @@ export function validateCuratedCompoundsFile(payload: unknown) {
   return parsed.data;
 }
 
-export function buildCuratedCompoundImportPlan(payload: unknown): CuratedCompoundImportPlan {
-  const file = validateCuratedCompoundsFile(payload);
+export function buildCuratedCompoundImportPlan(
+  payload: unknown,
+  options: { forceFormat?: DscdbJsonFormat } = {}
+): CuratedCompoundImportPlan {
+  const normalized = normalizeDscdbJsonPayload(payload, options);
   const validationErrors: ValidationError[] = [];
   const items: CuratedCompoundImportItem[] = [];
   const seenCids = new Map<number, number>();
 
-  file.compounds.forEach((compound, index) => {
-    const identifiers = compound.identifiers ?? {};
-    const pubchemCid = normalizePubChemCid(identifiers.pubchem_cid);
+  normalized.compounds.forEach((compound) => {
+    const pubchemCid = compound.identity.pubchem_cid;
 
     if (!pubchemCid) {
-      validationErrors.push({ index, message: "Missing or invalid identifiers.pubchem_cid" });
+      validationErrors.push({ index: compound.index, message: "Missing or invalid identity.pubchem_cid" });
       return;
     }
 
     if (seenCids.has(pubchemCid)) {
       validationErrors.push({
-        index,
+        index: compound.index,
         pubchemCid,
         message: `Duplicate PubChem CID ${pubchemCid} inside uploaded file; first occurrence is compounds[${seenCids.get(pubchemCid)}]`
       });
       return;
     }
 
-    seenCids.set(pubchemCid, index);
+    seenCids.set(pubchemCid, compound.index);
 
-    const notes = normalizeNotes(compound);
-    const artifactAssessment = normalizeArtifactAssessment(compound.exposure_artifact_assessment);
-    const annotationConfidence = normalizeAnnotationConfidence(compound);
+    const item = buildImportItemFromNormalizedCompound(compound);
 
-    items.push({
-      index,
-      pubchemCid,
-      commonName: cleanString(identifiers.common_name),
-      iupacName: cleanString(identifiers.iupac_name),
-      formula: cleanString(identifiers.formula) ?? cleanString(identifiers.molecular_formula),
-      molecularWeight: normalizeNumber(identifiers.molecular_weight),
-      exactMass: normalizeNumber(identifiers.exact_mass),
-      inchi: cleanString(identifiers.inchi),
-      inchikey: cleanString(identifiers.inchikey),
-      smiles: cleanString(identifiers.smiles),
-      canonicalSmiles: cleanString(identifiers.canonical_smiles),
-      isomericSmiles: cleanString(identifiers.isomeric_smiles),
-      hmdbId: cleanString(identifiers.hmdb_id),
-      keggId: cleanString(identifiers.kegg_id),
-      cas: cleanString(identifiers.cas),
-      chebi: normalizeChebi(cleanString(identifiers.chebi)),
-      pdbId: cleanString(identifiers.pdb_id),
-      pathbankId: cleanString(identifiers.pathbank_id),
-      biocycId: cleanString(identifiers.biocyc_id),
-      plantcycId: cleanString(identifiers.plantcyc_id),
-      drugbankId: cleanString(identifiers.drugbank_id),
-      uniprotId: cleanString(identifiers.uniprot_id),
-      names: normalizeSynonyms(identifiers.synonyms),
-      raw: compound,
-      rawHash: stablePayloadHash(compound),
-      notes,
-      artifactNote: artifactAssessment.rationale,
-      artifactFlag: artifactAssessment.flag,
-      annotationConfidence,
-      classifications: normalizeClassifications(compound.classifications),
-      compoundTypes: normalizeCompoundTypes(compound),
-      references: normalizeReferences(compound.references),
-      evidenceRecords: normalizeEvidence(compound),
-      pathways: normalizePathways(compound.reactions_pathways),
-      targets: normalizeTargets(compound.interactions),
-      pdbStructures: normalizePdbStructures(compound.structures),
-      relatedDiseases: normalizeRelatedDiseases(compound),
-      presence: normalizePeaktablePresence(compound.peaktable_presence)
-    });
+    items.push(item);
   });
 
   return {
-    totalCompounds: file.compounds.length,
+    detectedFormat: normalized.detected_format,
+    totalCompounds: normalized.compounds.length,
     validCompounds: items.length,
     invalidCompounds: validationErrors.length,
     items,
     validationErrors
   };
+}
+
+export function detectCompoundJsonImportFormat(payload: unknown) {
+  return detectDscdbJsonFormat(payload);
+}
+
+export function buildLegacyCompoundImportPlan(payload: unknown): CuratedCompoundImportPlan {
+  return buildCuratedCompoundImportPlan(payload, { forceFormat: "legacy_dscdb_json_v1" });
+}
+
+function buildImportItemFromNormalizedCompound(compound: NormalizedCompoundV2Dto): CuratedCompoundImportItem {
+  const identifiers = new Map(compound.external_identifiers.map((identifier) => [identifier.database, identifier.identifier]));
+  const artifactAssessment = compound.artifact_assessment;
+
+  return {
+    index: compound.index,
+    pubchemCid: compound.identity.pubchem_cid,
+    commonName: compound.identity.common_name,
+    iupacName: compound.identity.iupac_name,
+    formula: compound.identity.formula ?? compound.identity.molecular_formula,
+    molecularWeight: compound.identity.molecular_weight,
+    exactMass: compound.identity.exact_mass,
+    inchi: compound.identity.inchi,
+    inchikey: compound.identity.inchikey,
+    smiles: compound.identity.smiles,
+    canonicalSmiles: compound.identity.canonical_smiles,
+    isomericSmiles: compound.identity.isomeric_smiles,
+    hmdbId: identifiers.get("HMDB"),
+    keggId: identifiers.get("KEGG"),
+    cas: identifiers.get("CAS"),
+    chebi: identifiers.get("ChEBI"),
+    pdbId: identifiers.get("PDB"),
+    pathbankId: identifiers.get("PathBank"),
+    biocycId: identifiers.get("BioCyc"),
+    plantcycId: identifiers.get("PlantCyc"),
+    drugbankId: identifiers.get("DrugBank"),
+    uniprotId: identifiers.get("UniProt"),
+    names: compound.names.filter((name) => name.name_type === "synonym").map((name) => name.name),
+    externalIdentifiers: compound.external_identifiers,
+    raw: compound.raw,
+    rawHash: compound.raw_hash,
+    sourceName: compound.source_payloads[0]?.source_name ?? "DSCDB JSON import",
+    sourcePayloadType: compound.source_payloads[0]?.payload_type ?? "compound_json",
+    notes: compound.curator_notes.map((note) => note.note),
+    artifactNote: artifactAssessment?.rationale ?? artifactAssessment?.notes,
+    artifactFlag: artifactAssessment?.flag ?? "unknown",
+    annotationConfidence: compound.annotation_confidence
+      ? {
+          level: compound.annotation_confidence.level,
+          method: compound.annotation_confidence.method,
+          rationale: compound.annotation_confidence.rationale ?? compound.annotation_confidence.notes
+        }
+      : undefined,
+    classifications: compound.classifications.map((classification) => classification.name),
+    compoundTypes: compound.compound_types.map((type) => type.name),
+    references: compound.references.map((reference) => ({
+      title: reference.title,
+      doi: reference.doi,
+      pmid: reference.pmid,
+      url: reference.url,
+      citation: reference.citation ?? reference.citationText,
+      year: reference.year
+    })),
+    evidenceRecords: compound.evidence_records,
+    pathways: compound.pathways.map((pathway) => ({
+      name: pathway.name,
+      database: pathway.database,
+      pathwayType: pathway.pathwayType,
+      pathwayExternalId: pathway.pathwayExternalId,
+      externalId: pathway.externalId,
+      source: pathway.source,
+      url: pathway.url,
+      organism: pathway.organism,
+      taxonId: pathway.taxonId,
+      biologicalContext: pathway.biologicalContext,
+      role: pathway.role,
+      evidenceLevel: pathway.evidenceLevel,
+      notes: pathway.notes
+    })),
+    targets: compound.targets.map((target) => ({
+      name: target.name,
+      geneSymbol: target.geneSymbol,
+      uniprotId: target.uniprotId,
+      organism: target.organism,
+      taxonId: target.taxonId,
+      isHuman: target.isHuman,
+      targetType: target.targetType,
+      description: target.description,
+      externalId: target.externalId,
+      interactionType: target.interactionType,
+      directness: target.directness,
+      evidenceLevel: target.evidenceLevel,
+      source: target.source,
+      notes: target.notes
+    })),
+    pdbStructures: compound.pdb_structures.map((structure) => ({
+      pdbId: structure.pdbId,
+      title: structure.title,
+      method: structure.method,
+      resolution: structure.resolution,
+      organism: structure.organism,
+      url: structure.url,
+      ligandId: structure.ligandId,
+      chain: structure.chain,
+      source: structure.source,
+      notes: structure.notes
+    })),
+    relatedDiseases: compound.related_diseases.map((disease) => ({
+      name: disease.name,
+      assertion: disease.assertion,
+      sourceName: disease.sourceName,
+      sourceRole: disease.sourceRole,
+      sourceRecordId: disease.sourceRecordId,
+      notes: disease.notes
+    })),
+    presence: compound.dataset_presence.map((presence) => ({
+      key: diseaseNameToPresenceKey(presence.diseaseName),
+      diseaseName: presence.diseaseName,
+      value: presence.observedCount ?? presence.presencePercent ?? presence.frequency ?? (presence.observed === false ? 0 : 1),
+      datasetTitle: presence.datasetTitle,
+      evidenceLevel: presence.evidenceLevel,
+      observed: presence.observed,
+      notes: presence.notes
+    }))
+  };
+}
+
+function diseaseNameToPresenceKey(diseaseName: string): PresenceKey {
+  const lower = diseaseName.toLowerCase();
+  if (lower.includes("bronchiectasis")) return "bronchiectasis";
+  if (lower.includes("copd")) return "copd";
+  return "asthma";
 }
 
 export function summarizeImportPlanWithExistingCids(
@@ -324,8 +470,10 @@ export function summarizeImportPlanWithExistingCids(
 ): CuratedCompoundImportSummary {
   const created = plan.items.filter((item) => !existingPubChemCids.has(item.pubchemCid)).length;
   const updated = plan.items.filter((item) => existingPubChemCids.has(item.pubchemCid)).length;
+  const counts = buildEntityCounts(plan.items);
 
   return makeSummary({
+    detected_format: plan.detectedFormat,
     total: plan.totalCompounds,
     valid: plan.validCompounds,
     invalid: plan.invalidCompounds,
@@ -333,7 +481,12 @@ export function summarizeImportPlanWithExistingCids(
     updated,
     skipped: plan.invalidCompounds,
     dryRun,
-    validationErrors: plan.validationErrors
+    validationErrors: plan.validationErrors,
+    warnings: plan.validationErrors,
+    errors: [],
+    compounds_created: created,
+    compounds_updated: updated,
+    ...counts
   });
 }
 
@@ -354,25 +507,37 @@ export async function getDryRunSummary(db: Db, payload: unknown) {
 export async function importCuratedCompoundsJson(
   db: Db,
   payload: unknown,
-  options: { fileName?: string; userId?: string; dryRun?: boolean } = {}
+  options: { fileName?: string; userId?: string; dryRun?: boolean; forceFormat?: DscdbJsonFormat } = {}
 ): Promise<CuratedCompoundImportSummary> {
   if (options.dryRun) {
-    return getDryRunSummary(db, payload);
+    const plan = buildCuratedCompoundImportPlan(payload, { forceFormat: options.forceFormat });
+    const existing = await db.compound.findMany({
+      where: {
+        pubchemCid: { in: plan.items.map((item) => item.pubchemCid) }
+      },
+      select: {
+        pubchemCid: true
+      }
+    });
+    return summarizeImportPlanWithExistingCids(plan, new Set(existing.map((compound) => compound.pubchemCid)), true);
   }
 
-  const plan = buildCuratedCompoundImportPlan(payload);
+  const plan = buildCuratedCompoundImportPlan(payload, { forceFormat: options.forceFormat });
   const sourceOrigin = await db.sourceOrigin.upsert({
     where: {
       name_kind: {
-        name: "Curated JSON import",
+        name: plan.detectedFormat === "legacy_dscdb_json_v1" ? "Legacy curated JSON import" : "DSCDB v2 JSON import",
         kind: "manual_curation"
       }
     },
     update: {},
     create: {
-      name: "Curated JSON import",
+      name: plan.detectedFormat === "legacy_dscdb_json_v1" ? "Legacy curated JSON import" : "DSCDB v2 JSON import",
       kind: "manual_curation",
-      description: "Uploaded curated compound JSON file"
+      description:
+        plan.detectedFormat === "legacy_dscdb_json_v1"
+          ? "Uploaded legacy DSCDB viewer JSON file normalized before import"
+          : "Uploaded DSCDB_COMPOUND_V2 JSON file"
     }
   });
 
@@ -381,11 +546,13 @@ export async function importCuratedCompoundsJson(
       userId: options.userId,
       status: "running",
       fileName: options.fileName,
+      fileType: plan.detectedFormat,
       startedAt: new Date()
     }
   });
 
   const summary = makeSummary({
+    detected_format: plan.detectedFormat,
     total: plan.totalCompounds,
     valid: plan.validCompounds,
     invalid: plan.invalidCompounds,
@@ -393,7 +560,23 @@ export async function importCuratedCompoundsJson(
     updated: 0,
     skipped: plan.invalidCompounds,
     dryRun: false,
-    validationErrors: [...plan.validationErrors]
+    validationErrors: [...plan.validationErrors],
+    warnings: [...plan.validationErrors],
+    errors: [],
+    compounds_created: 0,
+    compounds_updated: 0,
+    identifiers_created: 0,
+    names_created: 0,
+    classifications_created: 0,
+    dataset_presence_created: 0,
+    related_diseases_created: 0,
+    pathways_created: 0,
+    targets_created: 0,
+    pdb_structures_created: 0,
+    evidence_records_created: 0,
+    references_created: 0,
+    notes_created: 0,
+    source_payloads_created: 0
   });
 
   for (const item of plan.items) {
@@ -424,13 +607,16 @@ export async function importCuratedCompoundsJson(
       if (existing) {
         summary.updated += 1;
         summary.updatedCompounds += 1;
+        summary.compounds_updated += 1;
       } else {
         summary.created += 1;
         summary.createdCompounds += 1;
+        summary.compounds_created += 1;
       }
 
       await persistCompoundDetails(db, item, compound.compoundId, sourceOrigin.sourceOriginId, importJob.importJobId);
       await importPresenceRecords(db, compound.compoundId, item.presence);
+      incrementSummaryCounts(summary, item);
 
       await db.auditLog.create({
         data: {
@@ -441,7 +627,7 @@ export async function importCuratedCompoundsJson(
           action: "import",
           metadata: {
             importJobId: importJob.importJobId,
-            source: "curated_compounds_json",
+            source: plan.detectedFormat,
             fileName: options.fileName,
             compoundIndex: item.index
           }
@@ -451,6 +637,11 @@ export async function importCuratedCompoundsJson(
       summary.skipped += 1;
       summary.skippedCompounds += 1;
       summary.validationErrors.push({
+        index: item.index,
+        pubchemCid: item.pubchemCid,
+        message: error instanceof Error ? error.message : "Unknown compound import error"
+      });
+      summary.errors.push({
         index: item.index,
         pubchemCid: item.pubchemCid,
         message: error instanceof Error ? error.message : "Unknown compound import error"
@@ -517,14 +708,17 @@ async function persistCompoundDetails(
   await upsertExternalIdentifier(db, compoundId, "PlantCyc", item.plantcycId, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "DrugBank", item.drugbankId, sourceOriginId);
   await upsertExternalIdentifier(db, compoundId, "UniProt", item.uniprotId, sourceOriginId);
+  for (const identifier of item.externalIdentifiers) {
+    await upsertExternalIdentifier(db, compoundId, identifier.database, identifier.identifier, sourceOriginId, identifier.url, identifier.notes);
+  }
 
   await db.sourcePayload.create({
     data: {
       compoundId,
       sourceOriginId,
       importJobId,
-      sourceName: "Curated JSON import",
-      payloadType: "compound_json",
+      sourceName: item.sourceName,
+      payloadType: item.sourcePayloadType,
       payload: item.raw as Prisma.InputJsonValue,
       payloadHash: item.rawHash
     }
@@ -621,7 +815,7 @@ async function persistCompoundDetails(
   }
 
   for (const target of item.targets) {
-    await upsertTarget(db, compoundId, target);
+    await upsertTarget(db, compoundId, target, sourceOriginId);
   }
 
   for (const pdbStructure of item.pdbStructures) {
@@ -899,7 +1093,7 @@ function normalizePathways(value: unknown) {
 
       return {
         name,
-        pathwayType: normalizePathwayType(cleanString(record.type) ?? cleanString(record.pathway_type) ?? JSON.stringify(record)),
+        pathwayType: normalizePathwayType(cleanString(record.type) ?? cleanString(record.pathway_type) ?? readableText(record)),
         externalId: cleanString(record.external_id) ?? cleanString(record.id) ?? cleanString(record.kegg_id),
         source: cleanString(record.source) ?? cleanString(record.database) ?? cleanString(record.resource)
       };
@@ -921,7 +1115,7 @@ function normalizeTargets(value: unknown) {
         name,
         organism: cleanString(record.organism) ?? cleanString(record.species),
         externalId: cleanString(record.external_id) ?? cleanString(record.id) ?? cleanString(record.uniprot),
-        directness: normalizeDirectness(cleanString(record.directness) ?? cleanString(record.relationship) ?? JSON.stringify(record))
+        directness: normalizeDirectness(cleanString(record.directness) ?? cleanString(record.relationship) ?? readableText(record))
       };
     })
     .filter((target): target is NormalizedTarget => Boolean(target));
@@ -1118,7 +1312,42 @@ function findFirstRecordByKey(value: unknown, needle: string): Record<string, un
   return undefined;
 }
 
-function makeSummary(input: Omit<CuratedCompoundImportSummary, "totalCompounds" | "createdCompounds" | "updatedCompounds" | "skippedCompounds">): CuratedCompoundImportSummary {
+function buildEntityCounts(items: CuratedCompoundImportItem[]) {
+  return {
+    identifiers_created: items.reduce((sum, item) => sum + item.externalIdentifiers.length, 0),
+    names_created: items.reduce((sum, item) => sum + [item.commonName, item.iupacName].filter(Boolean).length + item.names.length, 0),
+    classifications_created: items.reduce((sum, item) => sum + item.classifications.length, 0),
+    dataset_presence_created: items.reduce((sum, item) => sum + item.presence.length, 0),
+    related_diseases_created: items.reduce((sum, item) => sum + item.relatedDiseases.length, 0),
+    pathways_created: items.reduce((sum, item) => sum + item.pathways.length, 0),
+    targets_created: items.reduce((sum, item) => sum + item.targets.length, 0),
+    pdb_structures_created: items.reduce((sum, item) => sum + item.pdbStructures.length, 0),
+    evidence_records_created: items.reduce((sum, item) => sum + item.evidenceRecords.length, 0),
+    references_created: items.reduce((sum, item) => sum + item.references.length, 0),
+    notes_created: items.reduce((sum, item) => sum + item.notes.length + (item.artifactNote ? 1 : 0), 0),
+    source_payloads_created: items.length
+  };
+}
+
+function incrementSummaryCounts(summary: CuratedCompoundImportSummary, item: CuratedCompoundImportItem) {
+  const counts = buildEntityCounts([item]);
+  summary.identifiers_created += counts.identifiers_created;
+  summary.names_created += counts.names_created;
+  summary.classifications_created += counts.classifications_created;
+  summary.dataset_presence_created += counts.dataset_presence_created;
+  summary.related_diseases_created += counts.related_diseases_created;
+  summary.pathways_created += counts.pathways_created;
+  summary.targets_created += counts.targets_created;
+  summary.pdb_structures_created += counts.pdb_structures_created;
+  summary.evidence_records_created += counts.evidence_records_created;
+  summary.references_created += counts.references_created;
+  summary.notes_created += counts.notes_created;
+  summary.source_payloads_created += counts.source_payloads_created;
+}
+
+function makeSummary(
+  input: Omit<CuratedCompoundImportSummary, "totalCompounds" | "createdCompounds" | "updatedCompounds" | "skippedCompounds">
+): CuratedCompoundImportSummary {
   return {
     ...input,
     totalCompounds: input.total,
@@ -1145,9 +1374,12 @@ async function upsertExternalIdentifier(
     | "BioCyc"
     | "PlantCyc"
     | "DrugBank"
-    | "UniProt",
+    | "UniProt"
+    | "Other",
   identifier: string | undefined,
-  sourceOriginId: string
+  sourceOriginId: string,
+  url?: string,
+  notes?: string
 ) {
   if (!identifier) return;
 
@@ -1160,12 +1392,16 @@ async function upsertExternalIdentifier(
     },
     update: {
       compoundId,
-      sourceOriginId
+      sourceOriginId,
+      url,
+      notes
     },
     create: {
       compoundId,
       database,
       identifier,
+      url,
+      notes,
       sourceOriginId
     }
   });
@@ -1348,6 +1584,7 @@ async function createEvidenceIfMissing(db: Db, compoundId: string, evidence: Nor
         biologicalContext: evidence.biologicalContext,
         evidenceLevel: evidence.evidenceLevel,
         source: evidence.source,
+        species: evidence.species,
         humanEvidence: evidence.humanEvidence,
         summary: evidence.summary,
         notes: evidence.notes
@@ -1367,9 +1604,30 @@ async function upsertPathway(db: Db, compoundId: string, pathway: NormalizedPath
   const saved = existing
     ? await db.pathway.update({
         where: { pathwayId: existing.pathwayId },
-        data: { externalId: pathway.externalId }
+        data: {
+          database: pathway.database,
+          pathwayExternalId: pathway.pathwayExternalId,
+          externalId: pathway.externalId,
+          url: pathway.url,
+          organism: pathway.organism,
+          taxonId: pathway.taxonId,
+          biologicalContext: pathway.biologicalContext
+        }
       })
-    : await db.pathway.create({ data: pathway });
+    : await db.pathway.create({
+        data: {
+          name: pathway.name,
+          database: pathway.database,
+          pathwayType: pathway.pathwayType,
+          pathwayExternalId: pathway.pathwayExternalId,
+          externalId: pathway.externalId,
+          source: pathway.source,
+          url: pathway.url,
+          organism: pathway.organism,
+          taxonId: pathway.taxonId,
+          biologicalContext: pathway.biologicalContext
+        }
+      });
 
   await db.compoundPathway.upsert({
     where: {
@@ -1378,15 +1636,24 @@ async function upsertPathway(db: Db, compoundId: string, pathway: NormalizedPath
         pathwayId: saved.pathwayId
       }
     },
-    update: {},
+    update: {
+      role: pathway.role,
+      source: pathway.source,
+      evidenceLevel: pathway.evidenceLevel,
+      notes: pathway.notes
+    },
     create: {
       compoundId,
-      pathwayId: saved.pathwayId
+      pathwayId: saved.pathwayId,
+      role: pathway.role,
+      source: pathway.source,
+      evidenceLevel: pathway.evidenceLevel,
+      notes: pathway.notes
     }
   });
 }
 
-async function upsertTarget(db: Db, compoundId: string, target: NormalizedTarget) {
+async function upsertTarget(db: Db, compoundId: string, target: NormalizedTarget, sourceOriginId: string) {
   const existing = await db.target.findFirst({
     where: {
       name: target.name,
@@ -1396,12 +1663,26 @@ async function upsertTarget(db: Db, compoundId: string, target: NormalizedTarget
   const saved = existing
     ? await db.target.update({
         where: { targetId: existing.targetId },
-        data: { externalId: target.externalId }
+        data: {
+          geneSymbol: target.geneSymbol,
+          uniprotId: target.uniprotId,
+          taxonId: target.taxonId,
+          isHuman: target.isHuman,
+          targetType: target.targetType,
+          description: target.description,
+          externalId: target.externalId
+        }
       })
     : await db.target.create({
         data: {
           name: target.name,
+          geneSymbol: target.geneSymbol,
+          uniprotId: target.uniprotId,
           organism: target.organism,
+          taxonId: target.taxonId,
+          isHuman: target.isHuman,
+          targetType: target.targetType,
+          description: target.description,
           externalId: target.externalId
         }
       });
@@ -1414,11 +1695,22 @@ async function upsertTarget(db: Db, compoundId: string, target: NormalizedTarget
         directness: target.directness
       }
     },
-    update: {},
+    update: {
+      interactionType: target.interactionType,
+      evidenceLevel: target.evidenceLevel,
+      source: target.source,
+      sourceOriginId,
+      notes: target.notes
+    },
     create: {
       compoundId,
       targetId: saved.targetId,
-      directness: target.directness
+      directness: target.directness,
+      interactionType: target.interactionType,
+      evidenceLevel: target.evidenceLevel,
+      source: target.source,
+      sourceOriginId,
+      notes: target.notes
     }
   });
 }
@@ -1488,23 +1780,40 @@ async function importPresenceRecords(db: Db, compoundId: string, presence: Curat
     return;
   }
 
-  const dataset =
-    (await db.dataset.findFirst({
-      where: {
-        title: "Curated JSON peaktable_presence",
-        deletedAt: null
+  const sourceOrigin = await db.sourceOrigin.upsert({
+    where: {
+      name_kind: {
+        name: "legacy_json",
+        kind: "manual_curation"
       }
-    })) ??
-    (await db.dataset.create({
-      data: {
-        title: "Curated JSON peaktable_presence",
-        description:
-          "Dataset-level observations imported from curated JSON peaktable_presence fields. Values are not diagnostic, causal, or confirmed biomarker assertions.",
-        analyticalPlatform: "curated-json"
-      }
-    }));
+    },
+    update: {},
+    create: {
+      name: "legacy_json",
+      kind: "manual_curation",
+      description: "Legacy JSON source for dataset-level presence observations"
+    }
+  });
 
   for (const record of presence) {
+    const datasetTitle = record.datasetTitle ?? "Legacy curated JSON import";
+    const dataset =
+      (await db.dataset.findFirst({
+        where: {
+          title: datasetTitle,
+          deletedAt: null
+        }
+      })) ??
+      (await db.dataset.create({
+        data: {
+          title: datasetTitle,
+          description:
+            "Dataset-level observations imported from curated JSON peaktable_presence fields. Values are not diagnostic, causal, or confirmed biomarker assertions.",
+          analyticalPlatform: "legacy_json",
+          sourceOriginId: sourceOrigin.sourceOriginId
+        }
+      }));
+
     const disease = await db.disease.upsert({
       where: { name: record.diseaseName },
       update: {},
@@ -1536,16 +1845,20 @@ async function importPresenceRecords(db: Db, compoundId: string, presence: Curat
         }
       },
       update: {
-        evidenceLevel: "reported",
-        notes: `Imported peaktable_presence.${record.key}=${record.value}. Dataset observation only; not diagnostic, causal, or a confirmed biomarker assertion.`,
+        observed: record.observed,
+        evidenceLevel: record.evidenceLevel ?? "reported",
+        presenceValueRaw: String(record.value),
+        notes: record.notes ?? `Imported peaktable_presence.${record.key}=${record.value}. Dataset observation only; not diagnostic, causal, or a confirmed biomarker assertion.`,
         deletedAt: null
       },
       create: {
         compoundId,
         datasetId: dataset.datasetId,
         diseaseId: disease.diseaseId,
-        evidenceLevel: "reported",
-        notes: `Imported peaktable_presence.${record.key}=${record.value}. Dataset observation only; not diagnostic, causal, or a confirmed biomarker assertion.`
+        observed: record.observed,
+        evidenceLevel: record.evidenceLevel ?? "reported",
+        presenceValueRaw: String(record.value),
+        notes: record.notes ?? `Imported peaktable_presence.${record.key}=${record.value}. Dataset observation only; not diagnostic, causal, or a confirmed biomarker assertion.`
       }
     });
   }

@@ -43,12 +43,18 @@ function summaryEntries(summary: unknown): [string, React.ReactNode][] {
 
   const data = summary as Record<string, unknown>;
   return [
+    ["Detected format", displayScalar(data.detected_format)],
     ["Total", displayScalar(data.total ?? data.totalRows ?? data.totalCompounds)],
     ["Valid", displayScalar(data.valid ?? data.validRows)],
     ["Invalid", displayScalar(data.invalid ?? data.invalidRows)],
     ["Created", displayScalar(data.created ?? data.createdCompounds)],
     ["Updated", displayScalar(data.updated ?? data.updatedCompounds)],
     ["Skipped", displayScalar(data.skipped ?? data.skippedCompounds)],
+    ["Pathways", displayScalar(data.pathways_created)],
+    ["Targets", displayScalar(data.targets_created)],
+    ["PDB structures", displayScalar(data.pdb_structures_created)],
+    ["Evidence records", displayScalar(data.evidence_records_created)],
+    ["Source payloads", displayScalar(data.source_payloads_created)],
     ["Dry run", data.dryRun === undefined ? undefined : String(data.dryRun)],
     ["Warnings", Array.isArray(data.validationErrors) ? data.validationErrors.length : undefined]
   ];

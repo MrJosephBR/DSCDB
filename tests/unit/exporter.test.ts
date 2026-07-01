@@ -67,9 +67,16 @@ describe("compound JSON exporter", () => {
   it("exports combined viewer-compatible metadata", () => {
     const exported = serializeCombinedExport([compound], { disease: "Asthma" });
 
-    expect(exported.schema_version).toBe("dscdb.viewer.v1");
+    expect(exported.schema_version).toBe("DSCDB_COMPOUND_V2");
     expect(exported.exported_at).toBeTruthy();
     expect(exported.filters).toEqual({ disease: "Asthma" });
+    expect(exported.compounds[0].identity.pubchem_cid).toBe(460);
+  });
+
+  it("can export legacy viewer-compatible metadata", () => {
+    const exported = serializeCombinedExport([compound], { disease: "Asthma" }, "legacy");
+
+    expect(exported.schema_version).toBe("dscdb.viewer.v1");
     expect(exported.compounds[0].identifiers.pubchem_cid).toBe("460");
   });
 });

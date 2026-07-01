@@ -109,8 +109,9 @@ type AnyCompound = {
 };
 
 export const exportSchemaVersion = "dscdb.viewer.v1";
+export const v2ExportSchemaVersion = "DSCDB_COMPOUND_V2";
 
-export function serializeCompoundForExport(compound: AnyCompound) {
+export function serializeCompoundForLegacyExport(compound: AnyCompound) {
   const externalIdentifiers = compound.externalIdentifiers ?? [];
   const identifierMap = new Map(externalIdentifiers.map((identifier) => [identifier.database, identifier.identifier]));
 
@@ -271,9 +272,78 @@ export function serializeCompoundForExport(compound: AnyCompound) {
   };
 }
 
-export function serializeCombinedExport(compounds: AnyCompound[], filters: Record<string, unknown> = {}) {
+export function serializeCompoundForExport(compound: AnyCompound) {
+  const legacy = serializeCompoundForLegacyExport(compound);
+
   return {
-    schema_version: exportSchemaVersion,
+    identity: {
+      pubchem_cid: compound.pubchemCid,
+      common_name: compound.commonName,
+      iupac_name: compound.iupacName,
+      molecular_formula: compound.molecularFormula,
+      molecular_weight: compound.molecularWeight,
+      inchi: compound.identity?.inchi ?? null,
+      inchikey: compound.identity?.inchiKey ?? null,
+      smiles: compound.identity?.smiles ?? null,
+      canonical_smiles: compound.identity?.canonicalSmiles ?? null
+    },
+    names: (compound.names ?? []).map((name) => ({
+      name: name.name,
+      name_type: name.nameType
+    })),
+    external_identifiers: legacy.external_identifiers,
+    classifications: legacy.classifications,
+    compound_types: legacy.compound_types,
+    dataset_presence: legacy.dataset_presence,
+    related_diseases: legacy.related_diseases,
+    pathways: legacy.pathways,
+    targets: legacy.targets,
+    pdb_structures: legacy.pdb_structures,
+    evidence_records: legacy.evidence_records,
+    references: legacy.references,
+    artifact_assessment: legacy.artifact_assessments[0] ?? null,
+    annotation_confidence: legacy.annotation_confidence,
+    curator_notes: legacy.database_notes.map((note) => ({
+      note_type: "curation_notes",
+      note: note.note,
+      created_at: note.created_at
+    })),
+    source_payloads: legacy.source_payloads
+  };
+}
+
+export function serializeCombinedExport(
+  compounds: AnyCompound[],
+  filters?: Record<string, unknown>,
+  format?: "v2"
+): {
+  schema_version: typeof v2ExportSchemaVersion;
+  exported_at: string;
+  filters: Record<string, unknown>;
+  compounds: Array<ReturnType<typeof serializeCompoundForExport>>;
+};
+export function serializeCombinedExport(
+  compounds: AnyCompound[],
+  filters: Record<string, unknown>,
+  format: "legacy"
+): {
+  schema_version: typeof exportSchemaVersion;
+  exported_at: string;
+  filters: Record<string, unknown>;
+  compounds: Array<ReturnType<typeof serializeCompoundForLegacyExport>>;
+};
+export function serializeCombinedExport(compounds: AnyCompound[], filters: Record<string, unknown> = {}, format: "v2" | "legacy" = "v2") {
+  if (format === "legacy") {
+    return {
+      schema_version: exportSchemaVersion,
+      exported_at: new Date().toISOString(),
+      filters,
+      compounds: compounds.map(serializeCompoundForLegacyExport)
+    };
+  }
+
+  return {
+    schema_version: v2ExportSchemaVersion,
     exported_at: new Date().toISOString(),
     filters,
     compounds: compounds.map(serializeCompoundForExport)

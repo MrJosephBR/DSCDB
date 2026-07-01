@@ -77,16 +77,17 @@ describe("curated compound JSON importer", () => {
   it("does not create biomarker claims from peaktable presence", () => {
     const plan = buildCuratedCompoundImportPlan(validPayload);
 
-    expect(plan.items[0].presence).toEqual([
-      {
-        key: "asthma",
-        diseaseName: "Asthma",
-        value: 1
-      }
-    ]);
+    expect(plan.items[0].presence).toHaveLength(1);
+    expect(plan.items[0].presence[0]).toMatchObject({
+      key: "asthma",
+      diseaseName: "Asthma",
+      value: 1,
+      datasetTitle: "Legacy curated JSON import",
+      evidenceLevel: "reported"
+    });
     expect(plan.items[0].presence).not.toContainEqual(expect.objectContaining({ diseaseName: "COPD", value: 0 }));
-    expect(JSON.stringify(plan.items[0].presence).toLowerCase()).not.toContain("biomarker");
-    expect(JSON.stringify(plan.items[0].presence).toLowerCase()).not.toContain("diagnostic");
+    expect(JSON.stringify(plan.items[0].presence).toLowerCase()).toContain("not diagnostic");
+    expect(JSON.stringify(plan.items[0].presence).toLowerCase()).toContain("not diagnostic, causal, or a confirmed biomarker");
   });
 
   it("rejects records without a valid PubChem CID without rejecting the whole file", () => {
